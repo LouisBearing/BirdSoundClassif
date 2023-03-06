@@ -11,9 +11,10 @@ def download_request(species, sound_type, quality, max_length, filepath):
 
     # Load list of already processed file indexes
 
-    with open(os.path.join(r'C:\Users\laeri\NBM\data_2\xc', 'file_ids.json'), 'r') as f:
-        file_ids = json.load(f)
-    file_ids = file_ids['file_ids']
+    # with open(os.path.join(r'C:\Users\laeri\NBM\data_2\xc', 'file_ids.json'), 'r') as f:
+    #     file_ids = json.load(f)
+    # file_ids = file_ids['file_ids']
+    file_ids = []
     
     # XC API request    
     parameters = {

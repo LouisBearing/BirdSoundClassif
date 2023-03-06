@@ -1,0 +1,19 @@
+[project]
+name = "nbm_xc"
+description = "Utility functions to interact with the Xeno Canto API with python"
+
+version = "0.1"
+authors = [
+    { name = "Louis Airale", email = "louis.airale@gmail.com" }
+]
+urls = { project = "https://github.com/LouisBearing/BirdSoundClassif" }
+license = { text = "GNU General Public License v3.0" }
+keywords = [ "machine learning for biology" ]
+
+dependencies = [
+    "ffmpeg",
+    "numpy"
+]
+
+[project.scripts]
+xeno = "xeno_canto_utils:donwload"
