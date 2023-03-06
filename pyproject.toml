@@ -11,9 +11,9 @@ license = { text = "GNU General Public License v3.0" }
 keywords = [ "machine learning for biology" ]
 
 dependencies = [
-    "ffmpeg",
+    "ffmpeg-python",
     "numpy"
 ]
 
 [project.scripts]
-xeno = "xeno_canto_utils:donwload"
+xeno = "xeno_canto_utils:main"

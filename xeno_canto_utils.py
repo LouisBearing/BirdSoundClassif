@@ -5,9 +5,10 @@ import urllib
 import ffmpeg
 import numpy as np
 import glob
+import argparse
 
 
-def download_request(species, sound_type, quality, max_length, filepath):
+def download_request(args):
 
     # Load list of already processed file indexes
 
@@ -18,25 +19,27 @@ def download_request(species, sound_type, quality, max_length, filepath):
     
     # XC API request    
     parameters = {
-        'query': f'{species} type:"{sound_type}" len_lt: {max_length} q:{quality}'
+        'query': f'{args.species} type:"{args.sound_type}" len_lt: {args.max_length} q:{args.quality}'
     }
 
     response = requests.get('https://www.xeno-canto.org/api/2/recordings', params=parameters)
     js = response.json()
 
+    print(f'{len(js)} recordings founds!')
+
     for i in np.arange(len(js['recordings'])):
         recording = js['recordings'][i]
         rec_id = recording['id']
-        if (rec_id in file_ids) or (recording['also'] != ['']) or ('juvenile' in recording['type']):
-            continue
-        elif (sound_type != 'song') and ('song' in recording['type']):
-            continue
+        # if (rec_id in file_ids) or (recording['also'] != ['']) or ('juvenile' in recording['type']):
+        #     continue
+        # elif (args.sound_type != 'song') and ('song' in recording['type']):
+        #     continue
         filename = recording['gen'].lower() + '_' + recording['sp'].lower() + '_' + recording['id'] + '.mp3'
-        urllib.request.urlretrieve('http:' + recording['file'], filename=os.path.join(filepath, filename))
+        urllib.request.urlretrieve(recording['file'], filename=os.path.join(args.filepath, filename))
         file_ids.append(rec_id)
         
     # Convert mp3 to wav
-    dir_convert_mp32wav(filepath, keep_file=False)
+    dir_convert_mp32wav(args.filepath, keep_file=False)
         
     return file_ids
 
@@ -81,3 +84,14 @@ def file_convert_mp32wav(input_file, keep_file=False):
         delete = 1
         
     return convert, delete
+
+def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-s', '--species', type=str, help='Bird species')
+    parser.add_argument('-t', '--sound_type', type=str, help='Which type of sound (call, song, ...)')
+    parser.add_argument('-q', '--quality', type=str, help='Quality')
+    parser.add_argument('-lt', '--max_length', type=float, help='Max length in seconds')
+    parser.add_argument('-o', '--filepath', type=str, help='Where to save audio files')
+    args = parser.parse_args()
+    download_request(args)
