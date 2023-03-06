@@ -6,6 +6,7 @@ import ffmpeg
 import numpy as np
 import glob
 import argparse
+import ssl
 
 
 def download_request(args):
@@ -87,6 +88,7 @@ def file_convert_mp32wav(input_file, keep_file=False):
 
 def main():
 
+    ssl._create_default_https_context = ssl._create_unverified_context # is this necessary?
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--species', type=str, help='Bird species')
     parser.add_argument('-t', '--sound_type', type=str, help='Which type of sound (call, song, ...)')

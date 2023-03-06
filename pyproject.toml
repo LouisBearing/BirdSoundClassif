@@ -1,12 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "nbm_xc"
+name = "xeno_canto_utils_nbm"
 description = "Utility functions to interact with the Xeno Canto API with python"
 
-version = "0.1"
+version = "0.0.1"
 authors = [
-    { name = "Louis Airale", email = "louis.airale@gmail.com" }
+    { name = "Louloulou", email = "laerien@gmail.com" }
 ]
-urls = { project = "https://github.com/LouisBearing/BirdSoundClassif" }
+readme = "README.md"
 license = { text = "GNU General Public License v3.0" }
 keywords = [ "machine learning for biology" ]
 
@@ -15,5 +19,8 @@ dependencies = [
     "numpy"
 ]
 
+[project.urls]
+"Homepage" = "https://github.com/LouisBearing/BirdSoundClassif"
+
 [project.scripts]
-xeno = "xeno_canto_utils:main"
+xeno = "src.xeno_canto_utils_nbm.xeno_canto_utils:main"
