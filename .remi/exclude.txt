@@ -1,0 +1,17 @@
+.remi
+output/
+notebooks/
+.git
+.envrc
+__pycache__
+.ipynb_checkpoints
+logs
+.DS_Store
+.*.swp
+*.egg-info/
+**/__pycache__/.idea
+.mypy_cache/
+venv/
+*.sif
+build-temp-*
+.pytest_cache/

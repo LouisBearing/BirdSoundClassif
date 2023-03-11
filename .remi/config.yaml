@@ -1,0 +1,204 @@
+# If true, makes remi's output more explicit
+verbose: false
+
+# Name for your project
+project_name: BirdSoundClassif
+
+
+# Inria username
+username: lairale
+
+
+# Location of the project on the remote computer
+project_remote_path: /scratch/auriga/lairale/.remi_projects/BirdSoundClassif
+
+
+desktop:
+  # Name of your Inria workstation
+  hostname: auriga
+
+  ip_adress: auriga.inrialpes.fr
+
+  # Whether to use the singularity container when running jobs on the workstations.
+  use_container: true
+
+  # Desktop background jobs
+  background:
+    # Which backend to use (`screen` or `tmux`)
+    backend: screen
+
+    # Whether to keep the session alive after the job has ended.
+    # It lets you attach to the session to see the program output.
+    # If 'false', the session will be closed when the job is over and stdout/stderr will be
+    # lost.
+    # CAUTION: If true, you will have to manually re-attach and close the session.
+    keep_session_alive: false
+
+
+# Bastion used to ssh into Inria resources
+bastion:
+  enable: true
+  hostname: bastion.inrialpes.fr
+  username: lairale
+
+
+# Singularity container options
+singularity:
+  # The name of the 'recipe' file (`.def`) to build the singularity container.
+  def_file_name: container.def
+
+  # The name of the singularity image.
+  output_sif_name: container.sif
+
+  # A dictionnary of binds for the singularity container.
+  # If the value is empty (''), the mount point is the same as the path on the host.
+  # By default, the project folder is bound within the singularity container: This configuration
+  # then allows you to add extra locations.
+  # Example:
+  #     /path_on_host/my_data: /path_in_container/my_data
+  bindings:
+
+  # Whether to bind beegfs. (It will be available as `/beegfs/` in the container).
+  bind_beegfs: false
+
+  # The HOMEDIR is mounted by default by singularity.
+  # If you want to disable this behavior, set the following option to true.
+  # Learn more: https://docs.sylabs.io/guides/3.1/user-guide/bind_paths_and_mounts.html#using-no-home-and-containall-flags
+  no_home: false
+
+
+# Oarsub options (for more details on `oarsub`, please refer to
+# https://oar.imag.fr/docs/latest/user/commands/oarsub.html).
+oarsub:
+
+  # Job name
+  job_name: BirdSoundClassif
+
+  # Number of hosts requested.
+  num_hosts: 1
+
+  # Number of cpu cores requested.
+  # If the value is 0, all the cores for the requested cpus will be used.
+  num_cpu_cores: 0
+
+  # Number of GPUs requested.
+  # If the value is 0, no GPU will be requested (CPU only).
+  num_gpus: 1
+
+  # The maximum allowed duration for your job.
+  walltime: '72:00:00'
+
+  # The name of the requested cluster (perception, mistis, thoth...)
+  cluster_name: perception
+
+  # Optionnaly specify the id of a specific node (gpu3, node2...)
+  host_id:
+
+  # If the options above are too restricive for your use-case, you may
+  # directly provide a property list that will be provided to `oarsub` with the
+  # `-p` flag.
+  custom_property_query:
+
+  # Whether to schedule the job in the besteffort queue.
+  besteffort: true
+
+  # Whether to set the job as idempotent (see oarsub documentation for more details).
+  idempotent: false
+
+  # Template name for the log files.
+  # By default the log files are named: YYYY-MM-DD_hh-mm-ss.JOB_ID.JOB_NAME.std[out, err]
+  # Ex: 2022-06-12_14-47-52.7502202.bce_type2_EaConv1d.stdout
+  #
+  # You can use '%jobid%' and '%jobname%' to reference the job id and name.
+  # '.stdout' and '.stdout' is appended at the end automatically.
+  #
+  # Example: log_%jobid%_%jobname%_oarsub
+  log_file_name:
+
+
+gricad:
+  username: airalel
+
+  # The Gricad cluster (bigfoot, dahu, luke, froggy)
+  prefered_cluster: bigfoot
+
+  # The Gricad project you are a member of
+  # see: https://gricad-doc.univ-grenoble-alpes.fr/en/services/perseus-ng/3_project/
+  project_name: pr-ml3ri
+
+  # Location of the project on the remote computer
+  project_remote_path: /bettik/airalel/.remi_projects/BirdSoundClassif
+
+  # Whether to use the singularity container when running jobs on Gricad
+  use_container: true
+
+  # The name of the singularity image.
+  singularity_image: container.sif
+
+  oarsub:
+
+    # Job name
+    job_name: BirdSoundClassif
+
+    # Number of nodes requested.
+    num_nodes: 1
+
+    # Number of cpus requested (per requested node).
+    # If the value is 0, all the cpus for the requested node will be used.
+    num_cpus: 0
+
+    # Number of cpu cores requested.
+    # If the value is 0, all the cores for the requested cpus will be used.
+    num_cpu_cores: 0
+
+    # Number of GPUs requested.
+    # If the value is 0, no GPU will be requested (CPU only).
+    num_gpus: 1
+
+    # GPU model (leave blank if you have no preference)
+    # Possible values: 'A100', 'V100', 'T4'
+    gpu_model: V100
+
+    # The maximum allowed duration for your job.
+    walltime: '48:00:00'
+
+    # Template name for the log files.
+    # By default the log files are named: YYYY-MM-DD_hh-mm-ss.JOB_ID.JOB_NAME.std[out, err]
+    # Ex: 2022-06-12_14-47-52.7502202.bce_type2_EaConv1d.stdout
+    #
+    # You can use '%jobid%' and '%jobname%' to reference the job id and name.
+    # '.stdout' and '.stdout' is appended at the end automatically.
+    #
+    # Example: log_%jobid%_%jobname%_oarsub
+    log_file_name:
+
+
+# Remote servers
+# Remote servers are applications that run on a remote computer and can be accessed from your local
+# browser thanks to remi.
+#
+# Two such servers are supported right now:
+# - Jupyter notebook
+# - TensorBoard
+remote_servers:
+  # The command to run for opening the local browser (`<browser_cmd> <url>`)
+  browser_cmd: firefox
+
+  # Jupyter notebook
+  jupyter:
+    # The port (local and remote) for the server
+    port: 8080
+
+    # If true, automatically open the jupyter notebook in the local browser.
+    open_browser: true
+
+  # TensorBoard
+  tensorboard:
+    # The port (local and remote) for TensorBoard
+    port: 9090
+
+    # Directory from where to run tensorboard.
+    logdir: 'output/'
+
+    # If true, automatically open TensorBoard in the local browser.
+    open_browser: true

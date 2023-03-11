@@ -2,46 +2,71 @@ import os
 import json
 import requests
 import urllib
-import ffmpeg
+# import ffmpeg
 import numpy as np
 import glob
 import argparse
 import ssl
+from tqdm import tqdm
 
 
 def download_request(args):
 
     # Load list of already processed file indexes
 
-    # with open(os.path.join(r'C:\Users\laeri\NBM\data_2\xc', 'file_ids.json'), 'r') as f:
-    #     file_ids = json.load(f)
-    # file_ids = file_ids['file_ids']
-    file_ids = []
+    file_ids_path = os.path.join(args.filepath, 'file_ids.json')
+    if os.path.isfile(file_ids_path):
+        try:
+            with open(file_ids_path, 'r') as f:
+                file_ids = json.load(f)
+        except:
+            file_ids = []
+    else:
+        file_ids = []
     
     # XC API request    
     parameters = {
         'query': f'{args.species} type:"{args.sound_type}" len_lt: {args.max_length} q:{args.quality}'
     }
 
+    write_path = os.path.join(args.filepath, '_'.join(args.species.split()))
+    os.makedirs(write_path, exist_ok=True)
+
     response = requests.get('https://www.xeno-canto.org/api/2/recordings', params=parameters)
     js = response.json()
 
-    print(f'{len(js)} recordings founds!')
-
-    for i in np.arange(len(js['recordings'])):
+    request_len = len(js['recordings'])
+    print(f'{request_len} recordings founds!')
+    continue_bool = input("Continue? [y] / [n] / or type the number of files you want to download: ")
+    try:
+        n_files = int(continue_bool)
+        isint = True
+    except:
+        n_files = request_len
+        isint = False
+    while (continue_bool not in ['y', 'n']) and (not isint):
+        print("Please type y for yes or n for no and press ENTER")
+        continue_bool = input("Continue? [y] / [n]: ")
+    
+    if continue_bool == 'n':
+        return []
+    
+    indexes = np.arange(request_len)
+    np.random.shuffle(indexes)
+    print('~~Downloading~~')
+    for i in tqdm(indexes[:n_files]):
         recording = js['recordings'][i]
         rec_id = recording['id']
-        # if (rec_id in file_ids) or (recording['also'] != ['']) or ('juvenile' in recording['type']):
-        #     continue
-        # elif (args.sound_type != 'song') and ('song' in recording['type']):
-        #     continue
-        filename = recording['gen'].lower() + '_' + recording['sp'].lower() + '_' + recording['id'] + '.mp3'
-        urllib.request.urlretrieve(recording['file'], filename=os.path.join(args.filepath, filename))
+        if rec_id in file_ids:
+            continue
+        filename = recording['gen'].lower() + '_' + recording['sp'].lower() + '#' + recording['id'] + '.mp3'
+        urllib.request.urlretrieve(recording['file'], filename=os.path.join(write_path, filename))
         file_ids.append(rec_id)
         
-    # Convert mp3 to wav
-    dir_convert_mp32wav(args.filepath, keep_file=False)
-        
+    with open(file_ids_path, 'w') as f:
+        json.dump(file_ids, f)
+    print('Process over!')
+
     return file_ids
 
 

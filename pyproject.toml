@@ -1,12 +1,16 @@
 [build-system]
-requires = ["hatchling"]
+requires = [
+    "hatchling",
+    "requests",
+    "tqdm"
+    ]
 build-backend = "hatchling.build"
 
 [project]
 name = "xeno_canto_utils_nbm"
 description = "Utility functions to interact with the Xeno Canto API with python"
 
-version = "0.0.1"
+version = "0.0.7"
 authors = [
     { name = "Louloulou", email = "laerien@gmail.com" }
 ]
@@ -15,12 +19,12 @@ license = { text = "GNU General Public License v3.0" }
 keywords = [ "machine learning for biology" ]
 
 dependencies = [
-    "ffmpeg-python",
-    "numpy"
+    "numpy",
+    "requests"
 ]
 
 [project.urls]
 "Homepage" = "https://github.com/LouisBearing/BirdSoundClassif"
 
 [project.scripts]
-xeno = "src.xeno_canto_utils_nbm.xeno_canto_utils:main"
+xeno = "xeno_canto_utils_nbm.xeno_canto_utils:main"
