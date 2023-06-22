@@ -1,8 +1,6 @@
 [build-system]
 requires = [
-    "hatchling",
-    "requests",
-    "tqdm"
+    "hatchling"
     ]
 build-backend = "hatchling.build"
 
@@ -10,7 +8,7 @@ build-backend = "hatchling.build"
 name = "xeno_canto_utils_nbm"
 description = "Utility functions to interact with the Xeno Canto API with python"
 
-version = "0.0.7"
+version = "0.0.11"
 authors = [
     { name = "Louloulou", email = "laerien@gmail.com" }
 ]
@@ -20,7 +18,10 @@ keywords = [ "machine learning for biology" ]
 
 dependencies = [
     "numpy",
-    "requests"
+    "tqdm",
+    "requests",
+    "ffmpeg",
+    "ffmpeg-python"    
 ]
 
 [project.urls]

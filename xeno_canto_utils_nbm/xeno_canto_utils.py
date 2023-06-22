@@ -2,7 +2,7 @@ import os
 import json
 import requests
 import urllib
-# import ffmpeg
+import ffmpeg
 import numpy as np
 import glob
 import argparse
@@ -28,6 +28,7 @@ def download_request(args):
     parameters = {
         'query': f'{args.species} type:"{args.sound_type}" len_lt: {args.max_length} q:{args.quality}'
     }
+    # TODO: permettre de ne pas préciser la qualité
 
     write_path = os.path.join(args.filepath, '_'.join(args.species.split()))
     os.makedirs(write_path, exist_ok=True)
@@ -65,6 +66,8 @@ def download_request(args):
         
     with open(file_ids_path, 'w') as f:
         json.dump(file_ids, f)
+    print('Mp3 --> wav...')
+    dir_convert_mp32wav(write_path)
     print('Process over!')
 
     return file_ids

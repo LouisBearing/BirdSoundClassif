@@ -128,7 +128,7 @@ def create_label_dataset(directory, extra_str_label='', suppress_others=True, su
     
     # Deduplication of recording labels, label with the largest frequency range is kept
     labels['f_delta'] = labels['f_end'] - labels['f_start']
-    labels = labels.sort_values('f_delta', ascending=False).drop_duplicates(['filename', 't_start']).sort_values(['filename', 't_start'])
+    labels = labels.sort_values('f_delta', ascending=False).drop_duplicates(['filename', 't_start', 'species']).sort_values(['filename', 't_start'])
     del labels['f_delta']
     
     # Clean species
@@ -152,8 +152,9 @@ def create_label_dataset(directory, extra_str_label='', suppress_others=True, su
     labels.loc[mask_others | labels['species'].isin(not_bird_labels), 'bird_id'] = 0
 
     # All rarer and unidentified birds (supprimer oiseaux sp. du ds d'apprentissage pour la classif ?)
-    max_idx = len(birds_dict)
-    labels['bird_id'].fillna(max_idx + 1, inplace=True)
+    # max_idx = len(birds_dict)
+    # labels['bird_id'].fillna(max_idx + 1, inplace=True)
+    labels['bird_id'].fillna(birds_dict['Other'], inplace=True)
     labels['bird_id'] = labels['bird_id'].astype(int)
 
     if suppress_noise:
@@ -248,7 +249,7 @@ def visualise_file_annot(dirp, max_show=None):
     with open(os.path.join(dict_dir, 'bird_dict.json'), 'r') as f:
         birds_dict = json.load(f)
 
-    birds_dict.update({'Non bird sound': 0, 'Other': len(birds_dict) + 1})
+    birds_dict.update({'Non bird sound': 0})
     reverse_dict = {id: bird_name for bird_name, id in birds_dict.items()}
 
     if (max_show is not None) and len(filesp) > max_show:

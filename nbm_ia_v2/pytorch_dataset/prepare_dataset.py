@@ -58,24 +58,43 @@ ornithos = {
     }
 }
 
+keywords = [
+    'anthus_pratensis',
+    'apus_apus',
+    'ardea_cinerea',
+    'calidris_alpina',
+    'charadrius_morinellus',
+    'numenius_arquata',
+    'tyto_alba',
+    'vanellus_vanellus',
+    'fringilla_coelebs#444457',
+    'fringilla_coelebs#781870',
+    'linaria_cannabina#606298',
+    'rallus_aquaticus#789124',
+    'rallus_aquaticus#794338'
+]
 
-def prepare_dataset(directory, out_directory, freq_accuracy=33.3, dt=0.003, overlap_spectro=0.2, w_pix=1024, annotations=True):
+
+def prepare_dataset(directory, out_directory, freq_accuracy=33.3, dt=0.003, overlap_spectro=0.2, w_pix=1024, annotations=True, audio_format=''):
     """
-    Process all wav files in a directory, then save spectrogram and annotations in the destination directory
+    Process all audio files in a directory, then save spectrogram and annotations in the destination directory
     """
     top_dir = directory.split('\\')[-1]
     extra_str_label = ornithos[top_dir]['extra_label'] if top_dir in ornithos.keys() else ''
-    wavfiles = glob.glob(directory + '/*.wav')
+    if audio_format != '':
+        audio_files = glob.glob(directory + f'/*.{audio_format}')
+    else:
+        audio_files = glob.glob(directory + '/*.wav') + glob.glob(directory + '/*.mp3')
     if annotations:
         labels = create_label_dataset(directory, extra_str_label=extra_str_label, suppress_unID=True, is_csv=top_dir == 'mediae')
     else:
         labels = None
 
-    for wavfile in wavfiles:
+    for file in audio_files:
 
-        fp = File_Processor(wavfile, extra_str_label, labels)
-        out_pos_dir = os.path.join(out_directory, 'positive_files', top_dir + '__' + fp.filename)
-        out_neg_dir = os.path.join(out_directory, 'negative_files', top_dir + '__' + fp.filename)
+        fp = File_Processor(file, extra_str_label, labels)
+        out_pos_dir = os.path.join(out_directory, 'positive_files', top_dir + '__' + fp.filename.replace('#', '__'))
+        out_neg_dir = os.path.join(out_directory, 'negative_files', top_dir + '__' + fp.filename.replace('#', '__'))
         if os.path.exists(out_pos_dir) or os.path.exists(out_neg_dir):
             continue
 
@@ -111,7 +130,8 @@ def prepare_dataset(directory, out_directory, freq_accuracy=33.3, dt=0.003, over
                 img = img_db[bin_number][bin_idx]
             else:
                 img = img_db[i]
-            file_idx = '__'.join([top_dir, fp.filename, format(i, '05d')]) + '.png'
+            file_idx = '__'.join([top_dir, fp.filename.replace('#', '__'), format(i, '05d')]) + '.png'
+            img = np.round(img * 255).astype(np.uint8)
             if i in pos_idx:
                 imageio.imwrite(os.path.join(out_pos_dir, file_idx), img)
             elif i <= 999:
@@ -129,7 +149,8 @@ class File_Processor:
     def __init__(self, filepath, extra_str_label='', labels=None):
         
         self.labels = labels
-        self.filename = os.path.basename(filepath).replace('.wav', '').replace('.WAV', '').replace(extra_str_label, '')
+        self.ext = os.path.basename(filepath).split('.')[-1]
+        self.filename = os.path.basename(filepath).replace('.' + self.ext, '').replace(extra_str_label, '')
         self.filepath = filepath
     
     
@@ -197,8 +218,11 @@ class File_Processor:
                 shutil.copyfile(self.filepath, norm_filename)
             else:
                 norm_filename = self.filepath
-            temp_f = 'temp.wav'
-            command = "ffmpeg -y -i %s -async 1 -ac 1 -vn -acodec pcm_s16le -ar 44100 %s" % (norm_filename, temp_f)
+            temp_f = f'temp.{self.ext}'
+            if self.ext == 'wav':
+                command = "ffmpeg -y -i %s -async 1 -ac 1 -vn -acodec pcm_s16le -ar 44100 %s" % (norm_filename, temp_f)
+            else:
+                command = "ffmpeg -i %s -ar 44100 %s" % (norm_filename, temp_f)
             os.system(command)
             data, _ = librosa.core.load(temp_f, sr=None) # wavfile.read(temp_audio)
             os.remove(temp_f)
@@ -219,7 +243,7 @@ class File_Processor:
         if len(data) > max_l:
             print('Long file, processing in several steps...')
             for k in range(int(len(data) / max_l) + 1):
-                outp = f'temp{str(k)}.wav'
+                outp = f'temp{str(k)}.{self.ext}'
                 soundfile.write(outp, data[k * max_l: (k + 1) * max_l], self.FREQ)
             print('Done splitting input file')
             img_db = []
@@ -236,11 +260,11 @@ class File_Processor:
                     labels['filename'] = f'temp{str(k)}'
                 else:
                     labels = None
-                fp = File_Processor(f'temp{str(k)}.wav', '', labels)
+                fp = File_Processor(f'temp{str(k)}.{self.ext}', '', labels)
                 img_db_inc, annotations_inc = fp.process_file(freq_accuracy=freq_accuracy, dt=dt, overlap_spectro=overlap_spectro, w_pix=self.W_PIX)
                 img_db.append(img_db_inc)
                 annotations.append(annotations_inc)
-                os.remove(f'temp{str(k)}.wav')
+                os.remove(f'temp{str(k)}.{self.ext}')
             output = (img_db, annotations)
         
         return output
@@ -326,10 +350,16 @@ class File_Processor:
 
         # Merge filtered label dataset with each image in collection, keep only annotations that intersect the images
         labels_ = self.labels.loc[self.labels['filename'] == self.filename].copy()
+        # if mp3 file, suppress offset added in audacity, here this is a hardcoded 0.025s
+        if self.ext == 'mp3':
+            if not np.array([k in self.filename for k in keywords]).any():
+                for col in ['t_start', 't_end']:
+                    labels_[col] = labels_[col] - 0.03
         
         if len(labels_) == 0:
-            labels_ = pd.DataFrame({key: [] for key in ['index', 'coord', 'bird_id']})
-            return labels_
+            # labels_ = pd.DataFrame({key: [] for key in ['index', 'coord', 'bird_id']})
+            raise pd.errors.IntCastingNaNError
+            # return labels_
 
         # Convert second to pixels given DT, the time equivalent of hop_size
         for ex_label, new_label in zip(['t_start', 't_end'], ['x_1', 'x_2']):
@@ -354,13 +384,14 @@ class File_Processor:
 
         coord = ['x_1', 'y_1', 'x_2', 'y_2']
         labels_ = labels_[coord + ['w', 'h', 'joint', 'bird_id']].merge(img_coord, on='joint')
-        labels_ = labels_.loc[(labels_['x_1'].between(labels_['start'], labels_['end'])) | (labels_['x_2'].between(labels_['start'], labels_['end']))]
+        labels_ = labels_.loc[(labels_['x_1'].between(labels_['start'], labels_['end'])) | (labels_['x_2'].between(labels_['start'], labels_['end'])) \
+            | (labels_['x_1'].lt(labels_['start']) & labels_['x_2'].gt(labels_['end']))]
 
         # Supress bbox with too small intersection with spectrogram
         labels_['inside'] = labels_[['x_2', 'end']].min(axis=1) - labels_[['x_1', 'start']].max(axis=1) + 1
 
-        cond_1 = (labels_['inside'] < 0.5 * labels_['w']) & (labels_['inside'] < 15)
-        cond_2 = (labels_['inside'] < 0.1 * labels_['w']) & (labels_['inside'] < 30)
+        cond_1 = (labels_['inside'] < 0.5 * labels_['w']) & (labels_['inside'] < 20)
+        cond_2 = (labels_['inside'] < 0.1 * labels_['w']) & (labels_['inside'] < 45)
 
         labels_ = labels_.loc[~(cond_1 | cond_2)]
 
@@ -387,43 +418,5 @@ class File_Processor:
 
         # One row per img
         labels_ = labels_.groupby('index', as_index=False).agg({'coord': lambda x: x.tolist(), 'bird_id': lambda x: x.tolist()})
-
-        # # Complete with negative samples
-        # labels_ = pd.merge(
-        #     pd.DataFrame({'index': range(len(img_db))}, index=range(len(img_db))),
-        #     labels_,
-        #     how='outer',
-        #     on='index'
-        # )
-
-
-        # if not self.is_test:
-
-        #     # Sample negative images (33 % of total positive image count)
-        #     positive_count = labels_['coord'].isnull().value_counts()
-        #     if True in positive_count.index:
-        #         n_negative = positive_count[True]
-        #     else:
-        #         n_negative = 0
-        #     if False in positive_count.index:
-        #         n_positive = positive_count[False]
-        #     else:
-        #         n_positive = 0
-
-        #     negative_idx = labels_.loc[labels_['coord'].isnull(), 'index'].values
-        #     if len(negative_idx) > 0:
-        #         negative_idx = sorted(np.random.choice(negative_idx, min(n_negative, int(n_positive * 0.33), 8), replace=False))
-        #         print(f'{len(negative_idx)} negative img added!')
-        #     # Fill negative images coord column with empty lists
-        #     labels_.loc[negative_idx, 'coord'] = labels_.loc[negative_idx, 'coord'].map(lambda x: [(-1, -1, -1, -1)])
-        #     # Fill negative images bird_id with [-1]
-        #     labels_.loc[negative_idx, 'bird_id'] = labels_.loc[negative_idx, 'bird_id'].map(lambda x: [-1])
-        #     labels_ = labels_.loc[labels_['coord'].notnull()].copy()
-        #     # Replace noise samples coord with -1 list
-        #     noise_idx = labels_['bird_id'].map(lambda x: -1 in x)
-        #     labels_.loc[noise_idx, 'coord'] = labels_.loc[noise_idx, 'coord'].map(lambda x: [(-1, -1, -1, -1)])
-        
-        # labels_['filename'] = self.filename
-        # labels_['birder'] = self.directory.split('\\')[-1]
 
         return labels_
