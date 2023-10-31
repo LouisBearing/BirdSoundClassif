@@ -11,7 +11,7 @@ from .nets.vgg_backbone import *
 from .pytorch_dataset.image_dataset import *
 from .pytorch_dataset.prepare_dataset import *
 
-
+## Legacy, to be updated
 
 def load_model(save_dir, post_nms_topN_eval=50, biophonia=True, device=None):
 

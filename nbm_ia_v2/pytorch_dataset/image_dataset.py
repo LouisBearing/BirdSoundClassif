@@ -1,182 +1,116 @@
-import h5py
+import os
 import torch
+import glob
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+import pandas as pd
+import imageio
+from scipy import signal
+from torch.utils.data import Dataset
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
-import pickle
-from scipy import signal
 
 
 class Img_dataset(Dataset):
     
-    def __init__(self, img_db_path=None, annotations_path=None, test_array=None, zero_max=False, normalize=False, noise_strength=0, transform=False, fold=0, test=False):
+    def __init__(self, dataset_path, transform=False):
         super(Img_dataset, self).__init__()
         
-        self.noise_strength = noise_strength
-        self.zero_max = zero_max
-        self.normalize = normalize
+        self.ds_p = dataset_path
         self.transform = transform
-        self.cross_val = fold > 0
 
-        if img_db_path is not None:
-            if type(img_db_path) == list:
-                self.img_db = []
-                for path in img_db_path:
-                    with h5py.File(path, 'r') as f:
-                        self.img_db.append(f['img_db'][...])
-                self.lengths = [len(ds) for ds in self.img_db]
-                self.lengths = np.cumsum(np.array(self.lengths))
-                self.subs = [0] + list(self.lengths[:-1])
-            else:
-                with h5py.File(img_db_path, 'r') as f:
-                    self.img_db = f['img_db'][...]
-        elif test_array is not None:
-            self.img_db = test_array
-        else:
-            print('Path to dataset or test file must be provided')
-        
-        # if no annotation is provided, it is a test dataset
-        if annotations_path is not None:
-            if type(annotations_path) == list:
-                annotations_all = None
-                for path in annotations_path:
-                    with h5py.File(path, 'r') as f:
-                        annotations = {
-                            idx: {
-                                'bb_coord': f[idx]['bb_coord'][...],
-                                'birder': f[idx]['birder'][...],
-                                'filename': f[idx]['filename'][...],
-                                'bird_id': f[idx]['bird_id'][...]
-                            } for idx in f.keys()
-                        }
-                    if annotations_all is None:
-                        annotations_all = annotations
-                    else:
-                        annotations = {str(int(key) + len(annotations_all)): value for key, value in annotations.items()}
-                        annotations_all.update(annotations)
-                self.annotations = annotations_all
-            else:
-                with h5py.File(annotations_path, 'r') as f:
-                    self.annotations = {
-                        idx: {
-                            'bb_coord': f[idx]['bb_coord'][...],
-                            'birder': f[idx]['birder'][...],
-                            'filename': f[idx]['filename'][...],
-                            'bird_id': f[idx]['bird_id'][...]
-                        } for idx in f.keys()
-                    }
-                
-            # assert len(self.annotations) == len(self.img_db)
-
-        else:
-            self.annotations = None
-        
-        if self.cross_val:
-            # Check if whole model of cross val training
-            if fold == 4:
-                with open('xc_test_files', 'rb') as f:
-                    test_files = pickle.load(f)
-                with open('test_files_extra_xc', 'rb') as f:
-                    extra_test_files = pickle.load(f)
-                test_files = np.concatenate([test_files, extra_test_files])
-                if test:
-                    self.authorized_idx = [idx for idx, val in self.annotations.items() if val['filename'] in test_files]
-                else:
-                    self.authorized_idx = [idx for idx, val in self.annotations.items() if val['filename'] not in test_files]
-            else:
-                with open('folds', 'rb') as f:
-                    f_1, f_2, f_3 = pickle.load(f)
-                which_fold = {1: f_1, 2: f_2, 3: f_3}
-                if test:
-                    self.authorized_idx = [idx for idx, val in self.annotations.items() if val['filename'] in which_fold[fold]]
-                else:
-                    self.authorized_idx = [idx for idx, val in self.annotations.items() if val['filename'] not in which_fold[fold]]
+        self.positive_files = []
+        for f in os.listdir(os.path.join(self.ds_p, 'positive_files')):
+            self.positive_files.extend([os.path.basename(img) for img in glob.glob(os.path.join(self.ds_p, 'positive_files', f) + '/*.png')])
+        self.negative_files = []
+        for f in os.listdir(os.path.join(self.ds_p, 'negative_files')):
+            self.negative_files.extend([os.path.basename(img) for img in glob.glob(os.path.join(self.ds_p, 'negative_files', f) + '/*.png')])
+        self.hard_negative_files = []
+        for f in os.listdir(os.path.join(self.ds_p, 'hard_neg')):
+            self.hard_negative_files.extend([os.path.basename(img) for img in glob.glob(os.path.join(self.ds_p, 'hard_neg', f) + '/*.png')])
 
         
     def __len__(self):
-        if self.cross_val:
-            return len(self.authorized_idx)
-
-        if type(self.img_db) == list:
-            length = self.lengths[-1]
-        else:
-            length = len(self.img_db)
-        return length
+        return len(self.positive_files)
 
 
     def __getitem__(self, idx):
-        if self.cross_val:
-            idx = int(self.authorized_idx[idx])    
 
-        if type(self.img_db) == list:
-            db_idx = np.where(self.lengths > idx)[0][0]
-            img = torch.Tensor(self.img_db[db_idx][idx - self.subs[db_idx]])
-            if len(img.shape) == 2:
-                img = img.unsqueeze(0)
-        else:
-            img = torch.Tensor(self.img_db[idx])
+        imgp = self.positive_files[idx]
+        splits = imgp.replace('.png', '').split('__')
+        file, fileidx = '__'.join(splits[:-1]), splits[-1]
 
-        if self.noise_strength > 0:
-            std = img.std().item()
-            img += self.noise_strength * torch.clamp(torch.randn(img.size()), min=-2, max=2).mul_(std / 2)
+        # Load image
+        img = imageio.imread(os.path.join(self.ds_p, 'positive_files', file, imgp))
+        img = torch.Tensor(img / 255)
 
-        if self.zero_max:
-            img -= img.max()
+        # Load annots
+        annotp = os.path.join(self.ds_p, 'positive_files', file, 'annotations.csv')
+        annot = pd.read_csv(annotp, sep=';')
+        annot['coord'] = annot['coord'].apply(eval)
+        annot['bird_id'] = annot['bird_id'].apply(eval)
+        bboxes, bird_ids = annot.loc[annot['index'] == int(fileidx), ['coord', 'bird_id']].values[0]
+        bboxes, bird_ids = torch.Tensor(bboxes), torch.Tensor(bird_ids)
+
+        # Negative sample
+        negp = np.random.choice(self.negative_files, 1)[0]
+        splits = negp.replace('.png', '').split('__')
+        neg_file = '__'.join(splits[:-1])
+        neg_img = imageio.imread(os.path.join(self.ds_p, 'negative_files', neg_file, negp))
+        neg_img = torch.Tensor(neg_img / 255)
 
         if self.transform:
+            std = img.std().item()
+            noise = torch.clamp(torch.randn(img.shape).mul_(img.std().item() / 2), min=-0.5, max=0.5)
+            img += noise
 
-            # Random Gain
-            img += np.random.uniform(0.05, 0.75)
-
-            bool_transform = np.random.randint(2, size=3)
-
-            # Random dynamic range compression
+            bool_transform = np.random.randint(2, size=4)
             if bool_transform[0] == 1:
-                mean = img.mean()
-                std = img.std()
-                rdm_thresh = np.random.uniform(0.2, 1.2)
-                rdm_gain = np.random.uniform(0.5, 1)
-                mask = (img > mean + rdm_thresh * std).type(torch.float)
-                img = img * rdm_gain * mask + img * (1 - mask)
+                hard_negp = np.random.choice(self.hard_negative_files, 1)[0]
+                splits = hard_negp.replace('.png', '').split('__')
+                hard_neg_file = '__'.join(splits[:-1])
+                hard_neg_img = imageio.imread(os.path.join(self.ds_p, 'hard_neg', hard_neg_file, hard_negp))
+                hard_neg_img = torch.Tensor(hard_neg_img / 255)
+                coef = np.random.uniform(0.5, 0.99)
+                img = (img + coef * hard_neg_img) / (1 + coef)
 
-            # Random low pass filter
-            if bool_transform[1] == 1:
-                freq_accuracy = 33.3
-                cutting_freq = np.random.randint(500, 5000)
-                b, a = signal.butter(1, 2 * np.pi * cutting_freq, 'low', analog=True)
-                w, h = signal.freqs(b, a, worN=2 * np.pi * (500 + np.arange(256) * freq_accuracy))
-                # Addition of gain in log space
-                mat = torch.Tensor(20 * np.log10(np.clip(abs(h), 1e-9, None))).unsqueeze(0).repeat(1024, 1).transpose(0, 1).unsqueeze(0)
-                img = img + mat
+            # # Random Gain
+            # img += np.random.uniform(-0.5, 0.5)
 
-            # Random atmospheric absorption: air humidity and temperature are sampled randomly, affecting the frequency response
-            # see https://www.mne.psu.edu/lamancusa/me458/10_osp.pdf
-            if bool_transform[2] == 1:
-                f = torch.Tensor(np.arange(500, 500 + 256 * 33.3, 33.3)[::-1].copy())
-                f2 = f ** 2 
-                # Sample relative humidity
-                h_i, h_f = np.random.uniform(size=2)
-                # Sample air temperature
-                T_i, T_f = np.random.normal(size=2) * 4 + 285.15
-                alpha_i = atm_abs_coeff(T_i, h_i, f2)
-                alpha_f = atm_abs_coeff(T_f, h_f, f2)
-                img = img + alpha_i - alpha_f
+            # bool_transform = np.random.randint(2, size=3)
 
-        if self.normalize:
-            img = 0.5 + img / torch.abs(img.min())
+            # # Random dynamic range compression
+            # if bool_transform[0] == 1:
+            #     mean = img.mean()
+            #     std = img.std()
+            #     rdm_thresh = np.random.uniform(0.2, 1.2)
+            #     rdm_gain = np.random.uniform(0.5, 1)
+            #     mask = (img > mean + rdm_thresh * std).type(torch.float)
+            #     img = img * rdm_gain * mask + img * (1 - mask)
 
-        if self.annotations is not None:
+            # # Random low pass filter
+            # if bool_transform[1] == 1:
+            #     freq_accuracy = 33.3
+            #     cutting_freq = np.random.randint(500, 5000)
+            #     b, a = signal.butter(1, 2 * np.pi * cutting_freq, 'low', analog=True)
+            #     w, h = signal.freqs(b, a, worN=2 * np.pi * (500 + np.arange(256) * freq_accuracy))
+            #     # Addition of gain in log space
+            #     mat = torch.Tensor(20 * np.log10(np.clip(abs(h), 1e-9, None))).unsqueeze(0).repeat(1024, 1).transpose(0, 1).unsqueeze(0)
+            #     img = img + mat
 
-            idx_annotations = self.annotations[str(idx)]
-            bb_coord = torch.Tensor(idx_annotations['bb_coord'])
-            bird_id = torch.Tensor(idx_annotations['bird_id']).int()
-            img_info = (idx_annotations['birder'], idx_annotations['filename'])
-        
-            return (img, bb_coord, bird_id, img_info)
+            # # Random atmospheric absorption: air humidity and temperature are sampled randomly, affecting the frequency response
+            # # see https://www.mne.psu.edu/lamancusa/me458/10_osp.pdf
+            # if bool_transform[2] == 1:
+            #     f = torch.Tensor(np.arange(500, 500 + 256 * 33.3, 33.3)[::-1].copy())
+            #     f2 = f ** 2 
+            #     # Sample relative humidity
+            #     h_i, h_f = np.random.uniform(size=2)
+            #     # Sample air temperature
+            #     T_i, T_f = np.random.normal(size=2) * 4 + 285.15
+            #     alpha_i = atm_abs_coeff(T_i, h_i, f2)
+            #     alpha_f = atm_abs_coeff(T_f, h_f, f2)
+            #     img = img + alpha_i - alpha_f
 
-        else:
-            return (img, torch.Tensor(), torch.Tensor(), tuple())
+        return (img, neg_img, bboxes, bird_ids)
 
 
 def atm_abs_coeff(T, h, f2):
