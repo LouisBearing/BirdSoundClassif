@@ -2,3 +2,4 @@ models/
 launch*
 requirements.txt
 container.def
+.remi/
