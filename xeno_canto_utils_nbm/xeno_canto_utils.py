@@ -4,6 +4,7 @@ import requests
 import urllib
 import ffmpeg
 import numpy as np
+import pandas as pd
 import glob
 import argparse
 import ssl
@@ -113,6 +114,52 @@ def file_convert_mp32wav(input_file, keep_file=False):
         delete = 1
         
     return convert, delete
+
+
+def download_from_annots(dirp, out_dirp):
+    """
+    Download audio files from a list of txt annotation files ([SPECIES]#[FILE_ID].txt)
+    """
+    annot_files = glob.glob(dirp + '/*.txt')
+    df = pd.DataFrame([os.path.basename(f).replace('.txt', '') for f in annot_files])
+    df = df[0].str.split('#', expand=True)
+    df = df.groupby(0, as_index=False).agg({1: lambda x: x.tolist()})
+
+    for i in range(len(df)):
+        species = df.iloc[i][0]
+        file_ids = df.iloc[i][1]
+        download_species_ids(species.replace('_', '%20'), file_ids, out_dirp)     
+
+
+def download_species_ids(species, ids, out_dirp):
+
+    page_number = 0
+    required_files = len(ids)
+    processed_files = 0
+
+    while processed_files < required_files:
+        page_number += 1
+        response = requests.get(f'https://xeno-canto.org/api/2/recordings?query={species}&page={str(page_number)}')
+        js = response.json()
+        if 'error' in js.keys():
+            break
+
+        recordings = js['recordings']
+        recordings = [e for e in recordings if e['id'] in ids]
+
+        if len(recordings) > 0:
+            for j, recording in enumerate(recordings):
+                filename = species.replace('%20', '_') + '#' + recording['id']
+                if not os.path.exists(os.path.join(out_dirp, filename + '.mp3')):
+                    urllib.request.urlretrieve(recording['file'], filename=os.path.join(out_dirp, filename + '.mp3'))
+            processed_files += j + 1
+            
+    bird = species.replace('%20', ' ')
+    print(f'{processed_files} files of {bird} done!')
+
+    dir_convert_mp32wav(out_dirp)
+
+    return 1
 
 def main():
 

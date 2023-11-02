@@ -1,0 +1,118 @@
+#######################################################################################
+#                                                                                     #
+# ▀██▀▀█▄           ▀██                ▄   ▀██▀                                       #
+#  ██   ██    ▄▄▄    ██ ▄▄▄    ▄▄▄   ▄██▄   ██         ▄▄▄▄   ▄▄▄▄   ▄▄▄ ▄▄  ▄▄ ▄▄▄   #
+#  ██▀▀█▀   ▄█  ▀█▄  ██▀  ██ ▄█  ▀█▄  ██    ██       ▄█▄▄▄██ ▀▀ ▄██   ██▀ ▀▀  ██  ██  #
+#  ██   █▄  ██   ██  ██    █ ██   ██  ██    ██       ██      ▄█▀ ██   ██      ██  ██  #
+# ▄██▄  ▀█▀  ▀█▄▄█▀  ▀█▄▄▄▀   ▀█▄▄█▀  ▀█▄▀ ▄██▄▄▄▄▄█  ▀█▄▄▄▀ ▀█▄▄▀█▀ ▄██▄    ▄██▄ ██▄ #
+#                                                                                     #
+#######################################################################################
+
+# This is a basic singularity image for general python execution with a focus on deep learning.
+# To build this container from your workstation at Inria, use:
+#     sudo singularity build container.sif container.def
+#
+# Author: Gaetan Lepage (glepage.com)
+
+# vim: ft=sh
+
+Bootstrap: docker
+From: ubuntu:latest
+
+
+# List of host files to be copied inside the container.
+%files
+    # You can specify a single path.
+    # In this case, the file will be copied to the same path from / in the container
+    # Example:
+    #   foo/bar/hello.txt
+    # will copy `foo/bar/hello.txt` to `/foo/bar/hello.txt` in the container.
+
+    # You may also specify the location in the container
+    # Example:
+    #   foo/bar/hello.txt   /bonjour
+    # will copy `foo/bar/hello.txt` to `/bonjour/hello.txt` in the container.
+
+    requirements.txt
+
+
+# This section is where we download files from the internet with tools like git and wget, install
+# new software and libraries, write configuration files, create new directories, etc.
+%post
+    export DEBIAN_FRONTEND="noninteractive"
+    export TZ="Europe/Paris"
+
+    # Update Ubuntu apt repository
+    apt update
+
+    # Upgrade packages
+    apt upgrade -y
+
+    # Install apt packages
+    alias apt_install="apt install -y --no-install-recommends"
+
+    ##########
+    # PYTHON #######################################################################################
+    ##########
+
+    # Secify the version of python you want to install
+    PYTHON_VERSION='3.10'
+
+    PYTHON=python${PYTHON_VERSION}
+    VERSION_NUMBER=$(echo $PYTHON_VERSION | cut -d '.' -f 2)
+
+    # Needed for older versions of python (<3.10)
+    if [ $VERSION_NUMBER -lt 10 ]; then
+        apt_install software-properties-common gpg-agent
+        add-apt-repository ppa:deadsnakes/ppa
+        apt update -y
+    fi
+
+
+    # Python
+    apt_install curl                    # To download `get-pip.py` from the internet
+    apt_install ca-certificates         # Required by `curl`
+    apt_install $PYTHON                 # The specified version of Python
+    apt_install ${PYTHON}-dev           # Header files, a static library and development tools for
+                                        # building Python modules and more.
+    apt_install ${PYTHON}-distutils     # Support for building and installing additional Python
+                                        # modules
+    apt_install python3-dev
+    apt_install build-essential
+
+    # Set the default python
+    ln -sf /usr/bin/$PYTHON /usr/bin/python3
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+    # Install pip
+    curl https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    python /tmp/get-pip.py
+
+    # Install some pip packages
+    alias pip_install="python -m pip install"
+
+    pip_install -U pip setuptools
+
+    ################
+    # APT packages #################################################################################
+    ################
+
+    # >>> Here you can install your apt packages
+    # For example,
+    #   apt_install cmake
+    #   apt_install nvidia-cuda-toolkit
+    #   apt_install sox time gcc
+    apt_install ffmpeg git
+
+
+    ###################
+    # Python packages ##############################################################################
+    ###################
+
+    # >>> Here you can install your python packages
+    # For example,
+    #   pip_install torch
+    pip_install face-alignment
+    pip_install -r requirements.txt
+    pip_install librosa
+    # 

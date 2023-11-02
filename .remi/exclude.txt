@@ -15,3 +15,6 @@ venv/
 *.sif
 build-temp-*
 .pytest_cache/
+
+dataset/
+models/

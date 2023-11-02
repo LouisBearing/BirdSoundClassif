@@ -6,6 +6,7 @@ from nets.effdet_layers import *
 from pytorch_dataset.image_dataset import *
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 
 
 def save(out_dir, model, optim, scheduler, train_loader, validation_loader, epoch, steps, best_val_cls_loss, label):
@@ -71,7 +72,7 @@ def train(args, config):
         train_loader, validation_loader, epoch, steps, best_val_cls_loss = resume(model, optim, scheduler, save_dir)
 
     ## Tensorboard
-    writer = SummaryWriter(out_dir)
+    writer = SummaryWriter(save_dir)
 
     ## Training
 
@@ -92,9 +93,9 @@ def train(args, config):
             steps += 1
 
             # Validation
-            if step % 200 == 0:
+            if steps % 200 == 0:
                 val_cls_loss, val_reg_loss, val_neg_cls_loss = 0, 0, 0
-                for i, valid_batch in validation_loader:
+                for i, valid_batch in enumerate(validation_loader):
                     with torch.no_grad():
                         cls_loss, reg_loss, neg_cls_loss = model.step(valid_batch)
                     val_cls_loss += cls_loss
@@ -125,7 +126,7 @@ if __name__ == "__main__":
     ### General params
 
     parser.add_argument('--model_name', default='new_model', type=str)
-    parser.add_argument('--data_path', default=os.getcwd(), type=str)
+    parser.add_argument('--data_path', default='dataset', type=str)
     parser.add_argument('--save_dir', default=config.save_dir, type=str)
 
     ### Architecture params

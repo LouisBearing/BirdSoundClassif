@@ -12,6 +12,7 @@ class Config:
 
     save_dir = './models'
     device = 'cuda'
+    batch_size = 5
     
     # General params
     n_classes = 144
@@ -42,7 +43,7 @@ class Config:
     # Training
     learning_rate = 1e-4 #
     validation_prop = 0.03
-    n_epochs = 10
+    n_epochs = 30
     scheduler_gamma = 0.1
     scheduler_milestones = [15, 25]
 

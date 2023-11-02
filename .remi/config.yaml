@@ -97,13 +97,16 @@ oarsub:
   # If the options above are too restricive for your use-case, you may
   # directly provide a property list that will be provided to `oarsub` with the
   # `-p` flag.
-  custom_property_query:
+  custom_property_query: cluster='perception' AND (host='gpu5-perception.inrialpes.fr' OR host='gpu6-perception.inrialpes.fr' OR host='gpu7-perception.inrialpes.fr' OR host='gpu8-perception.inrialpes.fr')
+  # custom_property_query:
+  # custom_property_query: cluster='perception' AND host='gpu8-perception.inrialpes.fr'
+  # custom_property_query: cluster='kinovis' AND (host='gpu5-kinovis.inrialpes.fr' OR host='gpu6-kinovis.inrialpes.fr')
 
   # Whether to schedule the job in the besteffort queue.
   besteffort: true
 
   # Whether to set the job as idempotent (see oarsub documentation for more details).
-  idempotent: false
+  idempotent: true
 
   # Template name for the log files.
   # By default the log files are named: YYYY-MM-DD_hh-mm-ss.JOB_ID.JOB_NAME.std[out, err]
