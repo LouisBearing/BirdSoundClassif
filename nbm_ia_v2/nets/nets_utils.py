@@ -7,6 +7,7 @@ CHANNELS = [48, 80, 160, 176, 512]
 BCKB_LAYERS = [2, 3, 4, 5, 7]
 N_ANCHORS = 9
 IMG_SIZE = (375, 1024)
+SA_y, SA_minx, SA_maxx = 768, 60, 90
 
 class Config:
 
@@ -35,6 +36,9 @@ class Config:
     min_score = 0.5
     inter_nms_thresh = 0.3
     intra_nms_thresh = 0.3
+    pre_fpn_attn = False
+    c1d_branches = False
+    c1d_div_fact = 4
 
     # Focal loss
     gamma = 1.5

@@ -75,7 +75,11 @@ def train(args, config):
     writer = SummaryWriter(save_dir)
 
     ## Training
-
+    train_losses = {
+        'cls_loss': 0,
+        'reg_loss': 0,
+        'neg_cls_loss': 0
+    }
     while epoch < config.n_epochs:
         
         for batch in train_loader:
@@ -86,9 +90,13 @@ def train(args, config):
             total_loss = cls_loss + reg_loss + neg_cls_loss
             total_loss.backward()
             optim.step()
-            writer.add_scalar(f'Training_Loss/cls_loss', cls_loss, global_step=steps)
-            writer.add_scalar(f'Training_Loss/reg_loss', reg_loss, global_step=steps)
-            writer.add_scalar(f'Training_Loss/neg_cls_loss', neg_cls_loss, global_step=steps)
+            train_losses['cls_loss'] += cls_loss
+            train_losses['reg_loss'] += reg_loss
+            train_losses['neg_cls_loss'] += neg_cls_loss
+            if steps % 50 == 0:
+                for key in train_losses.keys():
+                    writer.add_scalar(f'Training_Loss/{key}', train_losses[key] / 50, global_step=steps)
+                    train_losses[key] = 0
 
             steps += 1
 
@@ -143,6 +151,9 @@ if __name__ == "__main__":
     parser.add_argument('--min_score', default=config.min_score, type=float)
     parser.add_argument('--inter_nms_thresh', default=config.inter_nms_thresh, type=float)
     parser.add_argument('--intra_nms_thresh', default=config.intra_nms_thresh, type=float)
+    parser.add_argument('--pre_fpn_attn', default=config.pre_fpn_attn, type=bool_parser)
+    parser.add_argument('--c1d_branches', default=config.c1d_branches, type=bool_parser)
+    parser.add_argument('--c1d_div_fact', default=config.c1d_div_fact, type=int)
 
     # Focal loss
     parser.add_argument('--gamma', default=config.gamma, type=float)
