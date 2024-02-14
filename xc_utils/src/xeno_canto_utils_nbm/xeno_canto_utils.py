@@ -56,7 +56,8 @@ def download_request(args):
     indexes = np.arange(request_len)
     np.random.shuffle(indexes)
     print('~~Downloading~~')
-    for i in tqdm(indexes[:n_files]):
+    n = 0
+    for i in tqdm(indexes):
         recording = js['recordings'][i]
         rec_id = recording['id']
         if rec_id in file_ids:
@@ -64,6 +65,10 @@ def download_request(args):
         filename = recording['gen'].lower() + '_' + recording['sp'].lower() + '#' + recording['id'] + '.mp3'
         urllib.request.urlretrieve(recording['file'], filename=os.path.join(write_path, filename))
         file_ids.append(rec_id)
+        n += 1
+        if n == n_files:
+            break
+    print(f'{n} new files added!')
         
     with open(file_ids_path, 'w') as f:
         json.dump(file_ids, f)
@@ -90,7 +95,7 @@ def dir_convert_mp32wav(directory, keep_file=False):
     
 def file_convert_mp32wav(input_file, keep_file=False):
     '''
-    Converts a sound file from mp3 to wav using ffmpeg
+    Converts a sound file from mp3 to wav using ffmpeg and merges stereo to mono
     Parameters:
     - str input_file: path to file to convert
     - bool keep_file: whether to delete original mp3 file or not
@@ -105,7 +110,7 @@ def file_convert_mp32wav(input_file, keep_file=False):
     if not os.path.isfile(output_file):
         # if output file doesn't already exist
         stream = ffmpeg.input(input_file)
-        stream = ffmpeg.output(stream, output_file)
+        stream = ffmpeg.output(stream, output_file, ac=1)
         ffmpeg.run(stream)
         convert = 1
         
@@ -118,7 +123,7 @@ def file_convert_mp32wav(input_file, keep_file=False):
 
 def download_from_annots(dirp, out_dirp):
     """
-    Download audio files from a list of txt annotation files ([SPECIES]#[FILE_ID].txt)
+    Downloads audio files from a list of txt annotation files ([SPECIES]#[FILE_ID].txt)
     """
     annot_files = glob.glob(dirp + '/*.txt')
     df = pd.DataFrame([os.path.basename(f).replace('.txt', '') for f in annot_files])

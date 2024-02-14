@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from .effnet import *
+import os
+# from .effnet import *
+from torchvision.models import efficientnet
 from .nets_utils import *
 
 
@@ -10,14 +12,14 @@ class InvResX1D(nn.Module):
     Inverted Residual Block 1D - ConvNeXt style. Applies LayerNorm on the channel dimension.
     """
 
-    def __init__(self, indim, outdim, kernel=3, stride=1, expansion_fact=4, residual=True, act_out=True):
+    def __init__(self, indim, outdim, kernel=3, stride=1, expansion_fact=4, residual=True, act_out=True, bias_out=True):
         super(InvResX1D, self).__init__()
         self.depth_wise = nn.Conv1d(indim, indim, kernel, stride=stride, padding=int(0.5 * (kernel - 1)),
                                     groups=indim)
         self.norm = nn.LayerNorm(indim)
         self.pt_wise_in = nn.Conv1d(indim, expansion_fact * indim, 1)
         self.act = nn.GELU()
-        self.pt_wise_out = nn.Conv1d(expansion_fact * indim, outdim, 1)
+        self.pt_wise_out = nn.Conv1d(expansion_fact * indim, outdim, 1, bias=bias_out)
         
         self.residual = residual
         self.downsample = None
@@ -56,7 +58,7 @@ class InvResX2D(nn.Module):
     Inverted Residual Block 2D - ConvNeXt style
     """
 
-    def __init__(self, indim, outdim, kernel=3, stride=1, expansion_fact=4, residual=True, act_out=True):
+    def __init__(self, indim, outdim, kernel=3, stride=1, expansion_fact=4, residual=True, act_out=True, bias_out=True):
         super(InvResX2D, self).__init__()
         if type(kernel) == tuple:
             padding = (int(0.5 * (kernel[0] - 1)), int(0.5 * (kernel[1] - 1)))
@@ -64,26 +66,28 @@ class InvResX2D(nn.Module):
             padding = int(0.5 * (kernel - 1))
         self.depth_wise = nn.Conv2d(indim, indim, kernel, stride=stride, padding=padding,
                                     groups=indim)
-        self.norm = nn.BatchNorm2d(indim)
+        # self.norm = nn.BatchNorm2d(indim)
+        self.norm = nn.LayerNorm(indim)
         self.pt_wise_in = nn.Conv2d(indim, expansion_fact * indim, 1)
         self.act = nn.GELU()
-        self.pt_wise_out = nn.Conv2d(expansion_fact * indim, outdim, 1)
+        self.pt_wise_out = nn.Conv2d(expansion_fact * indim, outdim, 1, bias=bias_out)
 
         self.residual = residual
         self.downsample = None
         if residual and ((stride != 1) or (indim != outdim)):
-            self.downsample = nn.Sequential(
-                nn.Conv2d(indim, outdim, 1, stride),
-                nn.BatchNorm2d(outdim)
-            )
+            self.downsample = nn.Conv2d(indim, outdim, 1, stride)
+                # nn.BatchNorm2d(outdim)
+            self.out_norm = nn.LayerNorm(outdim)
         
         self.act_out = act_out
         
     def forward(self, x):
         # Expected shape: B x C x H x W
+        bs, chan, h, w = x.shape
         identity = x
         out = self.depth_wise(x)
-        out = self.norm(out)
+        # out = self.norm(out)
+        out = self.norm(out.flatten(start_dim=-2).transpose(1, 2)).transpose(1, 2).view(bs, chan, h, w)
         out = self.pt_wise_in(out)
         out = self.act(out)
         out = self.pt_wise_out(out)
@@ -94,7 +98,8 @@ class InvResX2D(nn.Module):
             return out
         
         if self.downsample is not None:
-            identity = self.downsample(x)
+            # identity = self.downsample(x)
+            identity = self.out_norm(self.downsample(x).flatten(start_dim=-2).transpose(1, 2)).transpose(1, 2).view(bs, -1, h, w)
             
         out += identity
         if self.act_out:
@@ -128,48 +133,38 @@ class SmallViT(nn.Module):
         return out
 
 
-class SelfAttention(nn.Module):
-
-    def __init__(self, input_dim, inner_dim):
-        super(SelfAttention, self).__init__()
+class IntermEffNet(efficientnet.EfficientNet):
+    
+    def forward(self, x):
         
-        self.dim = inner_dim
-        self.qkv = nn.Linear(input_dim, 3 * inner_dim)
-        self.final_projection = nn.Linear(inner_dim, input_dim)
+        intermediate_outputs = []
+        for layer in self.features:
+            x = layer(x)
+            intermediate_outputs.append(x)
+
+        return intermediate_outputs
 
 
-    def forward(self, x, n_heads=1):
-        
-        assert self.dim % n_heads == 0
-
-        bs, input_dim, height, width = x.size()
-        L = height * width
-        head_dim = int(self.dim / n_heads)
-
-        x = x.permute(0, 2, 3, 1).flatten(end_dim=-2)
-        qkv = self.qkv(x).view(bs, L, -1) # [queries, keys, values]
-        q, k, v = qkv[..., :self.dim], qkv[..., self.dim:2 * self.dim], qkv[..., -self.dim:]
-        q, k, v = q.view(bs, L, n_heads, head_dim).transpose(1, 2), k.view(bs, L, n_heads, head_dim).transpose(1, 2), \
-            v.view(bs, L, n_heads, head_dim).transpose(1, 2)
-        
-        factors = torch.softmax(torch.matmul(q, k.transpose(2, 3)) / np.round(np.sqrt(self.dim), 2), dim=-1)
-        context_vect = torch.matmul(factors, v)
-        context_vect = self.final_projection(context_vect.transpose(1, 2).contiguous().view(-1, self.dim))
-        context_vect = context_vect.view(bs, height, width, input_dim).permute(0, 3, 1, 2)
-
-        return context_vect
+def effnet_with_interm(backbone):
+    
+    effnet_config = effnet_configs[backbone]
+    inverted_residual_setting, last_channel = efficientnet._efficientnet_conf(effnet_config['name'], width_mult=effnet_config['width_mult'], 
+        depth_mult=effnet_config['depth_mult'])
+    
+    return IntermEffNet(inverted_residual_setting=inverted_residual_setting, dropout=effnet_config['dropout'], last_channel=last_channel)
 
 
 class FusionModule(nn.Module):
     
-    def __init__(self, n_ends, cn):
+    def __init__(self, n_ends, cn, expansion_fact=4):
         '''
         n_ends: number of inputs
         cn: channels
         '''
         super().__init__()
         self.weights = nn.Parameter(torch.ones(n_ends), requires_grad=True)
-        self.conv = InvResX2D(cn, cn, residual=False)
+        self.conv = InvResX2D(cn, cn, residual=True, expansion_fact=expansion_fact)
+        # self.conv = nn.Conv2d(cn, cn, 3, padding=1)
         self.act = nn.ReLU()
     
     def forward(self, inputs):
@@ -200,7 +195,7 @@ class Rescale(nn.Module):
     
 class BiFPNLayer(nn.Module):
     
-    def __init__(self, channels, output_channels=None):
+    def __init__(self, channels, output_channels=None, expansion_fact=4):
         '''
         2 extremity fmaps, n fmaps in between, the channels are given as input in BOTTOM-UP ORDER
         '''
@@ -212,10 +207,10 @@ class BiFPNLayer(nn.Module):
             str(i): Rescale(in_cn, out_cn) for i, (in_cn, out_cn) in enumerate(zip(channels[:-1], channels[1:]))
         })
         self.fusions_td = nn.ModuleDict({
-            str(i + 1): FusionModule(2, cn) for i, cn in enumerate(channels[1:-1])
+            str(i + 1): FusionModule(2, cn, expansion_fact) for i, cn in enumerate(channels[1:-1])
         })
         self.fusions_bu = nn.ModuleDict({
-            str(i): FusionModule(2 if i in [0, len(channels) - 1] else 3, cn) for i, cn in enumerate(channels)
+            str(i): FusionModule(2 if i in [0, len(channels) - 1] else 3, cn, expansion_fact) for i, cn in enumerate(channels)
         })
 
         if output_channels is not None:
@@ -223,6 +218,10 @@ class BiFPNLayer(nn.Module):
                 str(i): nn.Conv2d(cn, output_channels[i], 1) for i, cn in enumerate(channels)
             })
         
+        # self.out_pt_wise_convs = nn.ModuleDict({
+        #         str(i): nn.Conv2d(cn, output_channels[i], 1) for i, cn in enumerate(channels)
+        #     })
+
     def forward(self, inputs, sizes):
         # td path
         td_indexes = np.arange(len(inputs))[::-1]
@@ -243,63 +242,132 @@ class BiFPNLayer(nn.Module):
 
         if hasattr(self, 'out_pt_wise_convs'):
             bu_outs = [self.out_pt_wise_convs[str(i)](bu_out) for i, bu_out in enumerate(bu_outs)]
+        # bu_outs = [self.out_pt_wise_convs[str(i)](bu_out) for i, bu_out in enumerate(inputs)]
         
         return bu_outs
 
 
 class BiFPN(nn.Module):
     
-    def __init__(self, n_layers, channels, out_channels):
+    def __init__(self, n_layers, channels, out_channels, expansion_fact):
         super().__init__()
-        self.layers = nn.ModuleList([BiFPNLayer(channels, out_channels if i == (n_layers - 1) else None) for i in range(n_layers)])
-        
+        self.layers = nn.ModuleList([BiFPNLayer(channels, out_channels if i == (n_layers - 1) else None, expansion_fact) for i in range(n_layers)])
+        # self.layers = BiFPNLayer(channels, out_channels, expansion_fact)
+
     def forward(self, x, sizes):
         '''
         x is a list of feature maps
         '''
         for layer in self.layers:
             x = layer(x, sizes)
+        # x = self.layers(x, sizes)
         return x
 
 
 class ClassBoxBranches(nn.Module):
     
-    def __init__(self, out_channels, n_anchors, n_layers_branches, n_classes, c1d_branches):
+    def __init__(self, channels, n_anchors, n_layers_branches, n_classes, c1d_branches, bias_p, bckb):
         super().__init__()
 
+        self.n_classes = n_classes
         self.c1d_branches = c1d_branches
+        self.bckb = bckb
+        bias_out_bool = True if bias_p == 0 else False
+        
         if c1d_branches:
             self.class_branch = nn.ModuleList([
                 nn.Sequential(*[
                     InvResX1D(chan_lvl, chan_lvl, expansion_fact=2) if i < (n_layers_branches - 1) \
-                    else InvResX1D(chan_lvl, n_anchors * n_classes * SIZES[lvl][0], expansion_fact=2, residual=False, act_out=False) \
+                    else InvResX1D(chan_lvl, n_anchors * n_classes * SIZES[self.bckb][lvl][0], expansion_fact=2, residual=False, act_out=False, bias_out=bias_out_bool) \
                     for i in range(n_layers_branches)
-                ]) for (lvl, chan_lvl) in enumerate(out_channels)
+                ]) for (lvl, chan_lvl) in enumerate(channels)
             ])
 
             self.box_branch = nn.ModuleList([
                 nn.Sequential(*[
                     InvResX1D(chan_lvl, chan_lvl, expansion_fact=2) if i < (n_layers_branches - 1) \
-                    else InvResX1D(chan_lvl, n_anchors * 4 * SIZES[lvl][0], expansion_fact=2, residual=False, act_out=False) \
+                    else InvResX1D(chan_lvl, n_anchors * 4 * SIZES[self.bckb][lvl][0], expansion_fact=2, residual=False, act_out=False) \
                     for i in range(n_layers_branches)
-                ]) for (lvl, chan_lvl) in enumerate(out_channels)
+                ]) for (lvl, chan_lvl) in enumerate(channels)
             ])
+
         else:
-            self.class_branch = nn.Sequential(*[InvResX2D(out_channels, out_channels) if i < (n_layers_branches - 1) \
-                else InvResX2D(out_channels, n_anchors * n_classes, residual=False, act_out=False) for i in range(n_layers_branches)])
-            self.box_branch = nn.Sequential(*[InvResX2D(out_channels, out_channels) if i < (n_layers_branches - 1) \
-                else InvResX2D(out_channels, n_anchors * 4, residual=False, act_out=False) for i in range(n_layers_branches)])
-        self.class_branch_act = nn.Sigmoid()
+            self.class_branch = nn.ModuleList([
+                nn.Sequential(*[
+                    InvResX2D(chan_lvl, chan_lvl) if i < (n_layers_branches - 1) \
+                    else InvResX2D(chan_lvl, n_anchors * n_classes, residual=False, act_out=False, bias_out=bias_out_bool) \
+                    for i in range(n_layers_branches)
+                ]) for (lvl, chan_lvl) in enumerate(channels)
+            ])
+            self.box_branch = nn.ModuleList([
+                nn.Sequential(*[
+                    InvResX2D(chan_lvl, chan_lvl) if i < (n_layers_branches - 1) \
+                    else InvResX2D(chan_lvl, n_anchors * 4, residual=False, act_out=False, bias_out=bias_out_bool) \
+                    for i in range(n_layers_branches)
+                ]) for (lvl, chan_lvl) in enumerate(channels)
+            ])
+
+            # self.class_branch = nn.Sequential(*[InvResX2D(channels, channels) if i < (n_layers_branches - 1) \
+            #     else InvResX2D(channels, n_anchors * n_classes, expansion_fact=2, residual=False, act_out=False, bias_out=bias_out_bool) for i in range(n_layers_branches)])
+            # self.box_branch = nn.Sequential(*[InvResX2D(channels, channels) if i < (n_layers_branches - 1) \
+            #     else InvResX2D(channels, n_anchors * 4, expansion_fact=2, residual=False, act_out=False) for i in range(n_layers_branches)])
+
         
+        self.class_branch_act = nn.Softmax(dim=2)
+
+        if bias_p > 0:
+            self._initialize_out_bias(c1d_branches, bias_p)
+
+
     def forward(self, out_fpn):
         if self.c1d_branches:
             bs = len(out_fpn[0])
-            boxes = [self.box_branch[i](o.flatten(start_dim=1, end_dim=2)).view(bs, -1, SIZES[i][0], SIZES[i][1]) for (i, o) in enumerate(out_fpn)]
-            classes = [self.class_branch_act(self.class_branch[i](o.flatten(start_dim=1, end_dim=2)).view(bs, -1, SIZES[i][0], SIZES[i][1]) ) for (i, o) in enumerate(out_fpn)]
+            boxes = [
+                self.box_branch[i](o.flatten(start_dim=1, end_dim=2)).view(bs, -1, SIZES[self.bckb][i][0], SIZES[self.bckb][i][1])
+                for (i, o) in enumerate(out_fpn)
+            ]
+            if hasattr(self, 'out_bias'):
+                classes = [
+                    (self.class_branch[i](o.flatten(start_dim=1, end_dim=2)) + self.out_bias[i][None, :, None]).view(bs, -1, SIZES[self.bckb][i][0], SIZES[self.bckb][i][1])
+                    for (i, o) in enumerate(out_fpn)
+                ]
+            else:
+                classes = [
+                    (self.class_branch[i](o.flatten(start_dim=1, end_dim=2))).view(bs, -1, SIZES[self.bckb][i][0], SIZES[self.bckb][i][1])
+                    for (i, o) in enumerate(out_fpn)
+                ]
         else:
-            boxes = [self.box_branch(o) for o in out_fpn]
-            classes = [self.class_branch_act(self.class_branch(o)) for o in out_fpn]
+            boxes = [self.box_branch[i](o) for (i, o) in enumerate(out_fpn)]
+            if hasattr(self, 'out_bias'):
+                classes = [self.class_branch[i](o) + self.out_bias[None, :, None, None] for (i, o) in enumerate(out_fpn)]
+            else:
+                classes = [self.class_branch[i](o) for (i, o) in enumerate(out_fpn)]
+            # boxes = [self.box_branch(o) for o in out_fpn]
+            # if hasattr(self, 'out_bias'):
+            #     classes = [self.class_branch(o) + self.out_bias[None, :, None, None] for o in out_fpn]
+            # else:
+            #     classes = [self.class_branch(o) for o in out_fpn]
+
+        classes = [
+            self.class_branch_act(
+                classes_lvl.view(-1, N_ANCHORS, self.n_classes, classes_lvl.shape[-2], classes_lvl.shape[-1])
+            ).flatten(start_dim=1, end_dim=2) for classes_lvl in classes
+        ]
+
         return classes, boxes
+
+
+    def _initialize_out_bias(self, c1d_branches, p=0.01):
+        logit_bias = -np.log((1 - p) / p)
+        bias = torch.ones(self.n_classes) * logit_bias
+        bias[0] = -np.log(p / (1 - p))
+        bias = bias.repeat(N_ANCHORS)
+        if c1d_branches:
+            self.out_bias = nn.ParameterList([
+                nn.Parameter(bias.repeat_interleave(SIZES[self.bckb][i][0]), requires_grad=True) for i in range(len(self.class_branch))
+            ])
+        else:
+            self.out_bias = nn.Parameter(bias, requires_grad=True)
 
 
 class EffDet(nn.Module):
@@ -308,20 +376,32 @@ class EffDet(nn.Module):
         super().__init__()
         
         self.config = config
-        self.backbone = EfficientNet(1, config.dropout)
-        if config.c1d_branches:
-            out_channels_fpn = [int(chan / config.c1d_div_fact) for chan in CHANNELS]
-            int_channels_branches = [chan * size[0] for chan, size in zip(out_channels_fpn, SIZES)]
-        else:
-            out_channels_fpn = [config.out_channels] * len(CHANNELS)
-            int_channels_branches = config.out_channels
-        self.fpn = BiFPN(config.n_layers_bifpn, CHANNELS, out_channels_fpn)
-        self.branches = ClassBoxBranches(int_channels_branches, N_ANCHORS, config.n_layers_branches, 1 + config.n_classes, config.c1d_branches)
+        self.init_lay = nn.Conv2d(1, 3, 1)
+        self.backbone = effnet_with_interm(config.bckb)
+        if config.pretrained_bckb:
+            state_dict = torch.load(os.path.join(config.pretrain_path, pretr_mods[config.bckb]))
+            self.backbone.load_state_dict(state_dict)
+            self.backbone.train()
+        # if self.config.bckb == 'effnet':
+        #     self.backbone = EfficientNet(1, config.dropout)
+        # elif self.config.bckb == 'vgg':
+        #     self.backbone = vgg16_bn(pretrained=config.pretrained_bckb, pretrained_path=config.pretrain_path)
+        # if config.c1d_branches:
+        #     out_channels_fpn = [int(chan / config.c1d_div_fact) for chan in CHANNELS[self.config.bckb]]
+        #     int_channels_branches = [chan * size[0] for chan, size in zip(out_channels_fpn, SIZES[self.config.bckb])]
+        # else:
+        #     # out_channels_fpn = [config.out_channels] * len(CHANNELS[self.config.bckb])
+        out_channels_fpn = CHANNELS[self.config.bckb]
+        int_channels_branches = out_channels_fpn
+        #     # int_channels_branches = config.out_channels
+        self.fpn = BiFPN(config.n_layers_bifpn, CHANNELS[self.config.bckb], out_channels_fpn, config.expansion_fact_fpn)
+        self.branches = ClassBoxBranches(int_channels_branches, N_ANCHORS, config.n_layers_branches, 1 + config.n_classes, config.c1d_branches, config.bias_p,
+            config.bckb)
         if config.pre_fpn_attn:
             patch_size = (2, 8)
             self.attn_modules = nn.ModuleDict({
-                str(i): SmallViT(CHANNELS[i], max(1, int(patch_size[0] / (2 ** i))),
-                    max(1, int(patch_size[1] / (2 ** i))), dropout=config.dropout) for i in range(len(CHANNELS))
+                str(i): SmallViT(CHANNELS[self.config.bckb][i], max(1, int(patch_size[0] / (2 ** i))),
+                    max(1, int(patch_size[1] / (2 ** i))), dropout=config.dropout) for i in range(len(CHANNELS[self.config.bckb]))
             })
 
         self.anchor_tgt_layer = AnchorTargetLayer(config)
@@ -331,7 +411,8 @@ class EffDet(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             self._initialize_module(m)
-        self._initialize_class_branch_bias()
+        # if self.config.bias_p > 0:
+        #     self._initialize_class_branch_bias(self.config.bias_p)
 
     def _initialize_module(self, m):
         if isinstance(m, nn.Conv2d):
@@ -345,91 +426,102 @@ class EffDet(nn.Module):
             nn.init.normal_(m.weight, 0, 0.01)
             nn.init.constant_(m.bias, 0)
 
-    def _initialize_class_branch_bias(self, p=0.01):
-        logit_bias = -np.log((1 - p) / p)
-        bias = torch.ones(self.config.n_classes + 1).to(self.config.device) * logit_bias
-        bias[0] = -np.log(p / (1 - p))
-        bias = bias.repeat(9)
-        if self.config.c1d_branches:
-            for i in range(len(self.branches.class_branch)):
-                self.branches.class_branch[i][-1].pt_wise_out.bias.data = bias.repeat_interleave(SIZES[i][0])
-        else:
-            self.branches.class_branch[-1].pt_wise_out.bias.data = bias
-        
+    # def _initialize_class_branch_bias(self, p=0.01):
+    #     logit_bias = -np.log((1 - p) / p)
+    #     bias = torch.ones(self.config.n_classes + 1).to(self.config.device) * logit_bias
+    #     bias[0] = -np.log(p / (1 - p))
+    #     bias = bias.repeat(N_ANCHORS)
+    #     if self.config.c1d_branches:
+    #         for i in range(len(self.branches.class_branch)):
+    #             self.branches.class_branch[i][-1].pt_wise_out.bias.data = bias.repeat_interleave(SIZES[self.config.bckb][i][0])
+    #     else:
+    #         self.branches.class_branch[-1].pt_wise_out.bias.data = bias
+
     def forward(self, inputs):
         '''
         inputs shape: bs, h, w
         '''
-        out = self.backbone(inputs[:, None])
-        out = [out[i] for i in BCKB_LAYERS]
+        out = self.backbone(self.init_lay(inputs[:, None]))
+        out = [out[i] for i in BCKB_LAYERS[self.config.bckb]]
         if self.config.pre_fpn_attn:
-            out = [self.attn_modules[str(i)](inpt_lvl) for (i, inpt_lvl) in enumerate(out)]
-        out = self.fpn(out, SIZES)    
+            out = [inpt_lvl + self.attn_modules[str(i)](inpt_lvl) for (i, inpt_lvl) in enumerate(out)]
+        out = self.fpn(out, SIZES[self.config.bckb])
         classes, boxes = self.branches(out)
         
         return classes, boxes
 
-    def step(self, batch):
+    def step(self, batch, neg_step=False, alpha=None, gamma=None):
 
         img, neg_img, bb_coord, bird_ids, lengths = batch
         img, neg_img, bb_coord, bird_ids = img.to(self.config.device), neg_img.to(self.config.device), bb_coord.to(self.config.device), bird_ids.to(self.config.device)
         b_size = len(lengths)
 
-        ### Positive batch step
+        if not neg_step:
+            ### Positive batch step
 
-        # Forward & reshape
-        classes, boxes = self(img)
-        classes = [classes_lvl.view(b_size, 9, 1 + self.config.n_classes, classes_lvl.shape[-2], classes_lvl.shape[-1])\
-            .permute(0, 1, 3, 4, 2).flatten(start_dim=1, end_dim=3) for classes_lvl in classes]
-        boxes = [bbox_lvl.view(b_size, 9, 4, bbox_lvl.shape[-2], bbox_lvl.shape[-1])\
-            .permute(0, 1, 3, 4, 2).flatten(start_dim=1, end_dim=3) for bbox_lvl in boxes]
-        # Target layer
-        labels, reg_targets = self.anchor_tgt_layer(bb_coord, bird_ids, lengths)
-        gt_class_logits = [torch.gather(classes_lvl, 2, label_lvl[..., None].clamp(0)).squeeze(-1) for classes_lvl, label_lvl in zip(classes, labels)]
-        # Flatten cls & labels
-        gt_class_logits = torch.cat(gt_class_logits, dim=1)
-        labels = torch.cat(labels, dim=1)
-        # Flatten boxes & regression targets
-        boxes = torch.cat(boxes, dim=1)
-        reg_targets = torch.cat(reg_targets, dim=1)
-        # Modulate losses wrt pos / neg / ignore assignments
-        ignore_idx = (labels == -1).to(torch.float)
-        pos_idx = labels > 0
-        # Losses
-        cls_loss = focal_loss(gt_class_logits, ignore_idx, pos_idx, self.config.alpha, self.config.gamma)
-        reg_loss = smooth_l1_loss(boxes, reg_targets, pos_idx)
+            # Forward & reshape
+            classes, boxes = self(img)
+            classes = [classes_lvl.view(b_size, N_ANCHORS, 1 + self.config.n_classes, classes_lvl.shape[-2], classes_lvl.shape[-1])\
+                .permute(0, 1, 3, 4, 2).flatten(start_dim=1, end_dim=3) for classes_lvl in classes]
+            boxes = [bbox_lvl.view(b_size, N_ANCHORS, 4, bbox_lvl.shape[-2], bbox_lvl.shape[-1])\
+                .permute(0, 1, 3, 4, 2).flatten(start_dim=1, end_dim=3) for bbox_lvl in boxes]
+            # Target layer
+            labels, reg_targets = self.anchor_tgt_layer(bb_coord, bird_ids, lengths, loss_type='focal') # or frcnn
+            gt_class_logits = [torch.gather(classes_lvl, 2, label_lvl[..., None].clamp(0)).squeeze(-1) for classes_lvl, label_lvl in zip(classes, labels)]
+            # Flatten cls & labels
+            gt_class_logits = torch.cat(gt_class_logits, dim=1)
+            labels = torch.cat(labels, dim=1)
+            # Flatten boxes & regression targets
+            boxes = torch.cat(boxes, dim=1)
+            reg_targets = torch.cat(reg_targets, dim=1)
+            # Modulate losses wrt pos / neg / ignore assignments
+            ignore_idx = (labels == -1).to(torch.float)
+            pos_idx = labels > 0
+            # ignore_idx = extract_samples_from_labels(labels, self.config.n_samples_ce)
+            # Losses
+            # cls_loss = cross_entropy_loss(gt_class_logits, ignore_idx, self.config.n_samples_ce)
+            cls_loss = focal_loss(gt_class_logits, ignore_idx, pos_idx, alpha if alpha is not None else self.config.alpha, 
+                gamma if gamma is not None else self.config.gamma)
+            reg_loss = smooth_l1_loss(boxes, reg_targets, pos_idx)
 
-        ### Negative batch step
-        neg_classes, _ = self(neg_img)
-        neg_logits = [classes_lvl.view(b_size, 9, 1 + self.config.n_classes, classes_lvl.shape[-2], classes_lvl.shape[-1])[:, :, 0] for classes_lvl in neg_classes]
-        neg_logits = torch.cat([logits_lvl.flatten(start_dim=1) for logits_lvl in neg_logits], dim=1)
-        neg_cls_loss = focal_loss_neg(neg_logits, self.config.gamma)
+            neg_cls_loss = torch.tensor(0.0).to(self.config.device)
+
+        else:
+            ### Negative batch step
+            neg_classes, _ = self(neg_img)
+            neg_logits = [classes_lvl.view(b_size, N_ANCHORS, 1 + self.config.n_classes, classes_lvl.shape[-2], classes_lvl.shape[-1])[:, :, 0] for classes_lvl in neg_classes]
+            neg_logits = torch.cat([logits_lvl.flatten(start_dim=1) for logits_lvl in neg_logits], dim=1)
+            neg_cls_loss = focal_loss_neg(neg_logits, self.config.gamma, alpha if alpha is not None else self.config.alpha)
+
+            cls_loss = torch.tensor(0.0).to(self.config.device)
+            reg_loss = torch.tensor(0.0).to(self.config.device)          
 
         return cls_loss.mean(), reg_loss.mean(), neg_cls_loss.mean()
 
-    def eval_test(self, inputs):
+    def eval_test(self, inputs, min_score=0.5):
         with torch.no_grad():
             classes, boxes = self(inputs)
 
-        return self.infer_cls_boxes(self, classes, boxes)
+        return self.infer_cls_boxes(classes, boxes, min_score)
     
-    def infer_cls_boxes(self, classes, boxes):
+    def infer_cls_boxes(self, classes, boxes, min_score):
         """
         Takes as input the class and box coord predictions from the model, filters w.r.t. min scores, and applies non-maximum suppressions
         """
 
         batch_size = len(classes[0])
 
-        max_classes = [classes_lvl.view(batch_size, 9, 1 + self.config.n_classes, classes_lvl.shape[-2],
-             classes_lvl.shape[-1]).max(dim=2) for classes_lvl in classes]
+        # suppress class zero (background)
+        max_classes = [classes_lvl.view(batch_size, N_ANCHORS, 1 + self.config.n_classes, classes_lvl.shape[-2],
+             classes_lvl.shape[-1])[:, :, 1:].max(dim=2) for classes_lvl in classes]
         scores, predicted_classes = zip(*max_classes)
 
         # Flatten
         scores = torch.cat([scores_lvl.flatten(start_dim=1) for scores_lvl in scores], dim=-1)
-        predicted_classes = torch.cat([cls_lvl.flatten(start_dim=1) for cls_lvl in predicted_classes], dim=-1)
+        predicted_classes = 1 + torch.cat([cls_lvl.flatten(start_dim=1) for cls_lvl in predicted_classes], dim=-1)
 
         # Boxes
-        boxes = [bbox_lvl.view(batch_size, 9, 4, bbox_lvl.shape[-2],
+        boxes = [bbox_lvl.view(batch_size, N_ANCHORS, 4, bbox_lvl.shape[-2],
              bbox_lvl.shape[-1]).permute(0, 1, 3, 4, 2).flatten(start_dim=1, end_dim=3) for bbox_lvl in boxes]
 
         # Reg to box coord
@@ -453,16 +545,16 @@ class EffDet(nn.Module):
             b_output = {}
 
             # First NMS, all classes + suppress class 0
-            non_zeros_where = (sorted_classes[b_idx] > 0) & (sorted_scores[b_idx] >= self.config.min_score)
+            non_zeros_where = (sorted_scores[b_idx] >= min_score) # & (sorted_classes[b_idx] > 0)
             if not non_zeros_where.any():
                 output.append(
-                    {str(class_idx): dict(bbox_coord=torch.Tensor(), scores=torch.Tensor()) for class_idx in range(1, num_classes + 1)}
+                    {str(class_idx): dict(bbox_coord=torch.Tensor(), scores=torch.Tensor()) for class_idx in range(1, self.config.n_classes + 1)}
                 )
                 continue
 
-            b_sorted_boxes = sorted_boxes[b_idx, non_zeros_where].unsqueeze(0)
-            b_sorted_scores = sorted_scores[b_idx, non_zeros_where].unsqueeze(0)
-            b_sorted_classes = sorted_classes[b_idx]
+            b_sorted_boxes = sorted_boxes[b_idx, non_zeros_where][:self.config.pre_nms_topN].unsqueeze(0)
+            b_sorted_scores = sorted_scores[b_idx, non_zeros_where][:self.config.pre_nms_topN].unsqueeze(0)
+            b_sorted_classes = sorted_classes[b_idx, non_zeros_where][:self.config.pre_nms_topN]
 
             # NMS
             b_sorted_boxes, b_sorted_scores, nms_idx = nms(b_sorted_boxes, b_sorted_scores, post_nms_topN=len(b_sorted_classes), 
@@ -473,7 +565,7 @@ class EffDet(nn.Module):
             b_sorted_classes = b_sorted_classes[nms_idx]
 
             # Apply NMS separately for each class
-            for class_idx in range(1, num_classes + 1): # class "other" ??
+            for class_idx in range(1, self.config.n_classes + 1): # class "other" ??
                 class_where = b_sorted_classes == class_idx
 
                 if not class_where.any():
@@ -487,7 +579,7 @@ class EffDet(nn.Module):
 
                 class_boxes, class_scores = nms(nms_bbox_inpt, nms_scores_inpt, post_nms_topN=500, nms_thresh=self.config.intra_nms_thresh)
                 class_boxes = class_boxes.view(-1, 4)
-                class_scores = class_scores.flatten()
+                # class_scores = class_scores.flatten()
 
                 b_output[str(class_idx)] = dict(
                     bbox_coord=class_boxes,
@@ -505,18 +597,19 @@ class AnchorTargetLayer(nn.Module):
         super().__init__()
 
         self.config = config
-        n_scales = config.max_level - config.min_level + 1
+        n_scales = len(CHANNELS[config.bckb])
+        # n_scales = config.max_level - config.min_level + 1
         
         # Generate anchors -> list of anchor box for all levels
         anchors = generate_anchors(config.base_size, config.ratios, n_scales)
         
         # Move anchors over spatial coordinates
-        anchors_shifts = get_anchor_shifts(config.min_level, config.max_level)
+        anchors_shifts = get_anchor_shifts(config.bckb)
         all_anchors = [(anch + shifts).reshape(-1, 4) for anch, shifts in zip(anchors, anchors_shifts)]
         self.anchors = [torch.Tensor(all_anch).to(config.device) for all_anch in all_anchors]
     
     
-    def forward(self, bb_coord, bird_ids, lengths):
+    def forward(self, bb_coord, bird_ids, lengths, loss_type='focal'):
         """
         Generates regression objectives and classification labels (-1 for ignored samples)
         related to each anchor, given the ground truth boxes
@@ -553,7 +646,13 @@ class AnchorTargetLayer(nn.Module):
                 assigned_box = bb_coord[i_0:i_f][argmax_overlaps]
                 
                 # assign negative labels
-                ignore_idx = (max_overlaps >= self.config.min_iou_thresh) & (max_overlaps < self.config.max_iou_thresh)
+                if loss_type == 'focal':
+                    ignore_idx = (max_overlaps >= self.config.min_iou_thresh) & (max_overlaps < self.config.max_iou_thresh)
+                    max_iou_thresh = self.config.max_iou_thresh
+                else:
+                    ignore_idx = (max_overlaps < self.config.min_iou_thresh) | \
+                        (max_overlaps > self.config.max_iou_thresh) & (max_overlaps < 0.5)
+                    max_iou_thresh = 0.5
                 labels[level][b_idx, ignore_idx] = -1
 
                 # assign positive class label to the anchor with largest intersection with a gt box
@@ -567,7 +666,7 @@ class AnchorTargetLayer(nn.Module):
                 assigned_ids[gt_argmax_anchor] = gt_argmax_id
                 
                 # assign positive labels
-                pos_idx = (max_overlaps >= self.config.max_iou_thresh)
+                pos_idx = (max_overlaps >= max_iou_thresh)
                 pos_idx[gt_argmax_anchor] = True
                 labels[level][b_idx, pos_idx] = assigned_ids[pos_idx]
                 

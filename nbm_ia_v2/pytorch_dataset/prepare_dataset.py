@@ -188,8 +188,8 @@ class File_Processor:
 
         power_spec = self.spectrogram(data)
 
-        # # Record the length of the spectrogram
-        # self.spectrogram_length = power_spec.shape[-1]
+        # Record the length of the spectrogram
+        self.spectrogram_length = sum(np.array([e.shape[-1] for e in power_spec]))
 
         # images to append
         img_db = self.split_power_spec(power_spec)

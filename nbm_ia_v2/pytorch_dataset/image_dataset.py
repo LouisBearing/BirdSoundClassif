@@ -61,6 +61,8 @@ class Img_dataset(Dataset):
         if self.transform:
             std = img.std().item()
             noise = torch.clamp(torch.randn(img.shape).mul_(img.std().item() / 2), min=-0.5, max=0.5)
+            # Random Gain
+            img += np.random.uniform(-0.1, 0.35)
             img += noise
 
             bool_transform = np.random.randint(2, size=4)
@@ -70,8 +72,12 @@ class Img_dataset(Dataset):
                 hard_neg_file = '__'.join(splits[:-1])
                 hard_neg_img = imageio.imread(os.path.join(self.ds_p, 'hard_neg', hard_neg_file, hard_negp))
                 hard_neg_img = torch.Tensor(hard_neg_img / 255)
-                coef = np.random.uniform(0.5, 0.99)
+                ## add to positive img
+                coef = np.random.uniform(0.1, 0.7)
                 img = (img + coef * hard_neg_img) / (1 + coef)
+                ## add to negative img
+                neg_coef = np.random.uniform(0.5, 0.99)
+                neg_img = (neg_img + neg_coef * hard_neg_img) / (1 + neg_coef)
 
             # # Random Gain
             # img += np.random.uniform(-0.5, 0.5)

@@ -2,12 +2,44 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-SIZES = [(94, 256), (47, 128), (24, 64), (12, 32), (6, 16)]
-CHANNELS = [48, 80, 160, 176, 512]
-BCKB_LAYERS = [2, 3, 4, 5, 7]
-N_ANCHORS = 9
+SIZES = {
+    'effnet': [(24, 64), (12, 32), (6, 16), (3, 8), (2, 4)],
+    'effnetb2': [(47, 128), (24, 64), (12, 32)],
+    # 'effnet': [(12, 32), (6, 16), (3, 8), (2, 4)],
+    'vgg': [(128, 512), (64, 256), (32, 128), (16, 64)]
+}
+
+CHANNELS = {
+    'effnet': [176, 512, 512, 512, 512],
+    'effnetb2': [48, 120, 1408],
+    # 'effnet': [512, 512, 512, 512],
+    'vgg': [128, 256, 256, 256]
+}
+
+BCKB_LAYERS = {
+    'effnet': [5, 7, 8, 9, 10],
+    'effnetb2': [3, 5, 8],
+    # 'effnet': [7, 8, 9, 10],
+    'vgg': [2, 3, 4, 5]
+}
+
+N_ANCHORS = 15
 IMG_SIZE = (375, 1024)
 SA_y, SA_minx, SA_maxx = 768, 60, 90
+
+
+pretr_mods = {
+    'effnetb2': 'efficientnet_b2_rwightman-c35c1473.pth',
+    'effnetb3': 'efficientnet_b3_rwightman-b3899882.pth',
+    'effnetb4': 'efficientnet_b4_rwightman-23ab8bcd.pth'
+}
+
+effnet_configs = {
+    'effnetb2': dict(name='efficientnet_b2', width_mult=1.1, depth_mult=1.2, dropout=0.3),
+    'effnetb3': dict(name='efficientnet_b3', width_mult=1.2, depth_mult=1.4, dropout=0.3),
+    'effnetb4': dict(name='efficientnet_b4', width_mult=1.4, depth_mult=1.8, dropout=0.4)
+}
+
 
 class Config:
 
@@ -17,39 +49,54 @@ class Config:
     
     # General params
     n_classes = 144
+    bckb = 'effnetb2'
+    pretrained_bckb = True
+    pretrain_path = 'pretr_weights'
 
     # Anchors
     base_size = 16
-    ratios = [0.5, 1, 2]
+    ratios = [0.2, 0.5, 1, 2, 5] # [0.5, 1, 2]
     min_level = 3
     max_level = 7
     
     # Anchor Target Layer
-    min_iou_thresh = 0.4
-    max_iou_thresh = 0.5
+    min_iou_thresh = 0.3 # 0.1 for frcnn loss, 0.4 for focal loss
+    max_iou_thresh = 0.5 # 0.3 for frcnn loss, 0.5 for focal loss
 
     # Detector
     dropout = 0.1
     n_layers_bifpn = 7 # 2
     out_channels = 224 # 32,
-    n_layers_branches = 4 # 1,
+    n_layers_branches = 8 # 1,
     min_score = 0.5
     inter_nms_thresh = 0.3
     intra_nms_thresh = 0.3
+    pre_nms_topN = 3000
     pre_fpn_attn = False
     c1d_branches = False
     c1d_div_fact = 4
+    n_samples_ce = 48
+    expansion_fact_fpn = 2 # 2
 
     # Focal loss
     gamma = 1.5
-    alpha = 0.25
+    alpha = 0.5
+    bias_p = 0.01
     
     # Training
-    learning_rate = 1e-4 #
+    learning_rate = 1e-3 #
+    learning_rate_bias_out = 1e-2
     validation_prop = 0.03
-    n_epochs = 30
+    n_epochs = 80
     scheduler_gamma = 0.1
-    scheduler_milestones = [15, 25]
+    scheduler_milestones = [180]
+    first_epoch_neg_loss = 0
+    optim = 'sgd'
+    scheduler = 'steplr'
+    cosine_scheduler_t0 = 60e3
+    cosine_scheduler_tmult = 2
+    momentum = 0.9
+    weight_decay = 4e-5
 
 
 def generate_anchors(base_size, ratios, n_scales):
@@ -58,7 +105,8 @@ def generate_anchors(base_size, ratios, n_scales):
 
     # Deform base anchor dimensions to the given ratios 
     coeffs = np.hstack([np.sqrt(ratios)[:, np.newaxis], (1 / np.sqrt(ratios))[:, np.newaxis]])
-    additional_ratios = np.array([2 ** (i / 3) for i in np.arange(3)])
+    # additional_ratios = np.array([2 ** (i / 3) for i in np.arange(3)])
+    additional_ratios = np.array([0.75, 1, 1.2])
     additional_ratios = additional_ratios[:, np.newaxis, np.newaxis]
     coeffs = (additional_ratios * coeffs[np.newaxis, ...]).reshape(-1, 2)
     ratios_anchors_wh = coeffs * np.sqrt(np.prod(base_anchor_wh))
@@ -67,29 +115,28 @@ def generate_anchors(base_size, ratios, n_scales):
     all_anchor_whs = [(ratios_anchors_wh.flatten() * (2 ** i)).reshape(-1, 2) for i in np.arange(n_scales)]
 
     # Convert from w h to x1 y1 x2 y2 representation, given center coordinates at int(base_size / 2)
-    all_anchors = [(np.hstack([-anchor_wh / 2, anchor_wh / 2]) + int(base_size / 2)).astype(int) for anchor_wh in all_anchor_whs]
+    all_anchors = [np.hstack([-anchor_wh / 2, anchor_wh / 2]).astype(int) for anchor_wh in all_anchor_whs]
 
     return all_anchors
 
 
-def get_anchor_shifts_level(size, level):
+def get_anchor_shifts_level(size):
 
     height, width = size
-    stride = 2 ** (level - 1)
+    stride_y, stride_x = ((IMG_SIZE[0] - 1) / (size[0] - 1), (IMG_SIZE[1] - 1) / (size[1] - 1))
 
-    shift_x = np.arange(width) * stride
-    shift_y = np.arange(height) * stride
+    shift_x = (np.arange(width) * stride_x).astype(int)
+    shift_y = (np.arange(height) * stride_y).round(0).astype(int)
     shifts = np.hstack([np.tile(shift_x, len(shift_y)).reshape(-1, 1), np.repeat(shift_y, len(shift_x)).reshape(-1, 1)])
     shifts = np.tile(shifts, 2)
     
     return shifts.reshape(-1, 1, 4)
 
 
-def get_anchor_shifts(min_level, max_level):
+def get_anchor_shifts(bckb):
     shifts = []
-    for i in range(min_level, max_level + 1):
-        size = SIZES[i - min_level]
-        shifts.append(get_anchor_shifts_level(size, i))
+    for size in SIZES[bckb]:
+        shifts.append(get_anchor_shifts_level(size))
     return shifts
 
 
@@ -253,15 +300,15 @@ def get_bbox_regression_targets(bbox_targets, b_labels, num_classes):
     return expanded_bbox_targets
 
 
-def cross_entropy_loss(bbox_classes, labels):
-    """
-    labels must be a flatten (numpy) array of class indices (0 for background)
-    """
+# def cross_entropy_loss(bbox_classes, labels):
+#     """
+#     labels must be a flatten (numpy) array of class indices (0 for background)
+#     """
     
-    gt_probs = bbox_classes[range(len(bbox_classes)), labels]
-    cel = (-torch.log(gt_probs)).sum()
+#     gt_probs = bbox_classes[range(len(bbox_classes)), labels]
+#     cel = (-torch.log(gt_probs)).sum()
     
-    return cel
+#     return cel
 
 
 def l1_loss(freq_reg, freq_tgt):
@@ -283,6 +330,22 @@ def smooth_l1_loss(bbox_reg, bbox_targets, pos_idx):
     return (smoothed_l1 * pos_idx.float()).sum(dim=1) / norm_weights
 
 
+def scheduler_fn_alpha(step, max_step=25000, log_a_bar_init=-5, a_bar_max=0.5):
+    
+    log_a_bar_max = np.log10(a_bar_max)
+    log_a_bar = np.clip((log_a_bar_init + step * (log_a_bar_max - log_a_bar_init) / max_step), a_min=None, a_max=log_a_bar_max)
+    a = 1 - 10 ** log_a_bar
+    return a
+
+
+def cross_entropy_loss(gt_class_logits, ignore_idx, n_boxes):
+
+    loss = -torch.log(gt_class_logits)
+    loss = (1.0 - ignore_idx) * loss
+
+    return loss.sum(dim=1) / n_boxes
+
+
 def focal_loss(gt_class_logits, ignore_idx, pos_idx, alpha, gamma):
     """
     Args:
@@ -291,7 +354,8 @@ def focal_loss(gt_class_logits, ignore_idx, pos_idx, alpha, gamma):
     ignore_idx (bs, n_anchors): ignored anchors
     pos_idx (bs, n_anchors): foreground assigned class
     """
-    loss = -(1 - gt_class_logits).pow(gamma) * torch.log(gt_class_logits)
+    factor = (1 - gt_class_logits).pow(gamma)
+    loss = -factor * torch.log(gt_class_logits)
     loss = (1.0 - ignore_idx) * loss
     loss = torch.where(pos_idx, alpha * loss, (1.0 - alpha) * loss)
     norm_weights = pos_idx.sum(dim=1)
@@ -299,15 +363,16 @@ def focal_loss(gt_class_logits, ignore_idx, pos_idx, alpha, gamma):
     return loss.sum(dim=1) / norm_weights
 
 
-def focal_loss_neg(backgnd_logits, gamma):
+def focal_loss_neg(backgnd_logits, gamma, alpha):
     """
     Args:
     -----
     backgnd_logits (bs, n_anchors): the logits corresponding to the background class for each (negative) anchor
     """
-    loss = -(1 - backgnd_logits).pow(gamma) * torch.log(backgnd_logits)
+    factor = (1 - backgnd_logits).pow(gamma)
+    loss = -factor * torch.log(backgnd_logits)
 
-    return loss.sum(dim=1)
+    return (1.0 - alpha) * loss.sum(dim=1)
 
 
 def bool_parser(string):
@@ -323,16 +388,32 @@ def train_test_split(length, val_prop):
     return indices[cut:], indices[:cut]
 
 
-def position_encodings(x, device):
-    bs, channels, height, width = x.shape
-    i_idx = np.arange(width)
-    j_idx = np.arange(height)
+def extract_samples_from_labels(labels, n_samples=48):
+    ignore_idx = torch.ones_like(labels).to(torch.float)
     
-    position_encodings = torch.from_numpy(np.stack(
-        [np.tile(np.sin(i_idx * 128 / (width * (1e4 ** (2 * k / channels)))), (height, 1)) for k in range(int(channels / 4))] + \
-        [np.tile(np.cos(i_idx * 128 / (width * (1e4 ** (2 * k / channels)))), (height, 1)) for k in range(int(channels / 4))] + \
-        [np.tile(np.sin(j_idx * 128 / (height * (1e4 ** (2 * k / channels))))[:, np.newaxis], (1, width)) for k in range(int(channels / 4))] + \
-        [np.tile(np.cos(j_idx * 128 / (height * (1e4 ** (2 * k / channels))))[:, np.newaxis], (1, width)) for k in range(int(channels / 4))]
-    )).to(device)
+    pos_idx = labels > 0
+    bg_idx = labels == 0
+    neg_idx = labels == -1
     
-    return position_encodings.unsqueeze(0).repeat(bs, 1, 1, 1).float()
+    n_pos = pos_idx.sum(dim=1)
+    for b_idx in range(len(n_pos)):
+        wanted_pos = min(n_pos[b_idx].item(), int(n_samples / 2))
+        b_pos_idx = torch.where(pos_idx[b_idx])[0].cpu().numpy()
+        if len(b_pos_idx) > 0:
+            b_pos_idx = np.random.choice(b_pos_idx, wanted_pos, replace=False)
+
+        wanted_bg = int(n_samples / 2)
+        b_bg_idx = torch.where(bg_idx[b_idx])[0].cpu().numpy()
+        if len(torch.where(bg_idx[b_idx])[0].cpu().numpy()) > 0:
+            b_bg_idx = np.random.choice(b_bg_idx, wanted_bg, replace=False)
+        idx_list = np.hstack([b_pos_idx, b_bg_idx])
+
+        b_missing = n_samples - len(b_pos_idx) - len(b_bg_idx)
+        if b_missing > 0:
+            idx_list = np.hstack([
+                idx_list, np.random.choice(torch.where(neg_idx[b_idx])[0].cpu().numpy(), b_missing, replace=False)
+            ])
+        
+        ignore_idx[b_idx, idx_list] = 0
+    
+    return ignore_idx

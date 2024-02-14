@@ -8,11 +8,12 @@ build-backend = "hatchling.build"
 name = "xeno_canto_utils_nbm"
 description = "Utility functions to interact with the Xeno Canto API with python"
 
-version = "0.0.12"
+version = "0.0.16"
 authors = [
     { name = "Louloulou", email = "laerien@gmail.com" }
 ]
 readme = "README.md"
+requires-python = ">= 3.5"
 license = { text = "GNU General Public License v3.0" }
 keywords = [ "machine learning for biology" ]
 
@@ -21,7 +22,6 @@ dependencies = [
     "pandas",
     "tqdm",
     "requests",
-    "ffmpeg",
     "ffmpeg-python"    
 ]
 

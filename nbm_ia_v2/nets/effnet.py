@@ -2,6 +2,34 @@ import torch
 import torch.nn as nn
 
 
+class ConvNormAct(nn.Module):
+
+    def __init__(self, in_cn, out_cn, kernel_size, stride=1, padding=0, groups=1, norm_layer=None, activation=None):
+
+        super().__init__()
+
+        self.conv = nn.Conv2d(in_cn, out_cn, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups)
+        if norm_layer is not None:
+            self.norm = norm_layer(out_cn)
+        if activation is not None:
+            self.act = activation
+
+    def forward(self, x):
+        # Expected shape: B x C x H x W
+        
+        out = self.conv(x)
+        bs, chan, h, w = out.shape
+        if hasattr(self, 'norm'):
+            if self.norm .__class__.__name__ == 'BatchNorm2d':
+                out = self.norm(out)
+            elif self.norm .__class__.__name__ == 'LayerNorm':
+                out =  self.norm(out.flatten(start_dim=-2).transpose(1, 2)).transpose(1, 2).view(bs, chan, h, w) # * 0.5
+        if hasattr(self, 'act'):
+            out = self.act(out)
+        return out
+
+
+
 class MBConv(nn.Module): # From pytorch repo
     def __init__(self, input_channels, out_channels, kernel, stride, norm_layer, expand_ratio):
         super().__init__()
@@ -14,17 +42,20 @@ class MBConv(nn.Module): # From pytorch repo
         expanded_channels = int(input_channels * expand_ratio)
         if expanded_channels != input_channels:
             layers.extend([
-                    nn.Conv2d(input_channels, expanded_channels, kernel_size=1),
-                    norm_layer(expanded_channels),
-                    activation_layer
+                ConvNormAct(input_channels, expanded_channels, 1, norm_layer=norm_layer, activation=activation_layer)
+                    # nn.Conv2d(input_channels, expanded_channels, kernel_size=1),
+                    # norm_layer(expanded_channels),
+                    # activation_layer
             ])
 
         # depthwise
         layers.extend([
-                nn.Conv2d(expanded_channels, expanded_channels, kernel_size=kernel, stride=stride,
-                          padding=int(0.5 * (kernel - 1)), groups=expanded_channels),
-                norm_layer(expanded_channels),
-                activation_layer
+            ConvNormAct(expanded_channels, expanded_channels, kernel, stride, int(0.5 * (kernel - 1)), expanded_channels,
+                norm_layer, activation_layer)
+                # nn.Conv2d(expanded_channels, expanded_channels, kernel_size=kernel, stride=stride,
+                #           padding=int(0.5 * (kernel - 1)), groups=expanded_channels),
+                # norm_layer(expanded_channels),
+                # activation_layer
             ])
 
         # squeeze and excitation
@@ -33,8 +64,9 @@ class MBConv(nn.Module): # From pytorch repo
 
         # project
         layers.extend([
-                nn.Conv2d(expanded_channels, out_channels, kernel_size=1),
-                norm_layer(out_channels)
+            ConvNormAct(expanded_channels, out_channels, 1, norm_layer=norm_layer)
+                # nn.Conv2d(expanded_channels, out_channels, kernel_size=1),
+                # norm_layer(out_channels)
             ])
 
         self.block = nn.Sequential(*layers)
@@ -59,23 +91,28 @@ class FusedMBConv(nn.Module): # From pytorch repo
         expanded_channels = int(input_channels * expand_ratio)
         if expanded_channels != input_channels:
             layers.extend([
-                    nn.Conv2d(input_channels, expanded_channels, kernel_size=kernel, stride=stride,
-                             padding=int(0.5 * (kernel - 1))),
-                    norm_layer(expanded_channels),
-                    activation_layer
+                ConvNormAct(input_channels, expanded_channels, kernel, stride, int(0.5 * (kernel - 1)), 
+                    norm_layer=norm_layer, activation=activation_layer)
+                    # nn.Conv2d(input_channels, expanded_channels, kernel_size=kernel, stride=stride,
+                    #          padding=int(0.5 * (kernel - 1))),
+                    # norm_layer(expanded_channels),
+                    # activation_layer
             ])
 
             # project
             layers.extend([
-                    nn.Conv2d(expanded_channels, out_channels, kernel_size=1),
-                    norm_layer(out_channels)
+                ConvNormAct(expanded_channels, out_channels, 1, norm_layer=norm_layer)
+                    # nn.Conv2d(expanded_channels, out_channels, kernel_size=1),
+                    # norm_layer(out_channels)
                 ])
         else:
             layers.extend([
-                    nn.Conv2d(input_channels, out_channels, kernel_size=kernel, stride=stride,
-                             padding=int(0.5 * (kernel - 1))),
-                    norm_layer(out_channels),
-                    activation_layer
+                ConvNormAct(input_channels, out_channels, kernel, stride, int(0.5 * (kernel - 1)), 
+                    norm_layer=norm_layer, activation=activation_layer)
+                    # nn.Conv2d(input_channels, out_channels, kernel_size=kernel, stride=stride,
+                    #          padding=int(0.5 * (kernel - 1))),
+                    # norm_layer(out_channels),
+                    # activation_layer
             ])            
 
         self.block = nn.Sequential(*layers)
@@ -134,6 +171,9 @@ inverted_residual_setting = [
     [MBConv, 6, 3, 2, 160, 176, 14], # stride = 1 --> stride = 2
     [MBConv, 6, 3, 2, 176, 304, 18],
     [MBConv, 6, 3, 1, 304, 512, 5],
+    [MBConv, 2, 3, 2, 512, 512, 5], # new
+    [MBConv, 2, 3, 2, 512, 512, 5], # new
+    [MBConv, 2, 3, 2, 512, 512, 5], # new
 ]
 
 class EfficientNet(nn.Module): # From pytorch repo
@@ -153,15 +193,17 @@ class EfficientNet(nn.Module): # From pytorch repo
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
+            # norm_layer = nn.LayerNorm
 
         layers = []
 
         # building first layer
         firstconv_output_channels = inverted_residual_setting[0][keys['input_channels']]
         layers.append(nn.Sequential(*[
-            nn.Conv2d(input_channels, firstconv_output_channels, kernel_size=3, stride=2, padding=1),
-            norm_layer(firstconv_output_channels),
-            nn.SiLU()
+            ConvNormAct(input_channels, firstconv_output_channels, 3, 1, 1, norm_layer=norm_layer, activation=nn.SiLU())
+            # nn.Conv2d(input_channels, firstconv_output_channels, kernel_size=3, stride=2, padding=1),
+            # norm_layer(firstconv_output_channels),
+            # nn.SiLU()
         ]))
 
         # building inverted residual blocks
