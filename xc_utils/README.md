@@ -1,4 +1,4 @@
-# BirdSoundClassif
+# Xeno Canto utils
 
 How to install the package:
 
