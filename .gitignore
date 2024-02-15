@@ -7,5 +7,6 @@ efficientdet_pytorch
 faster_rcnn_v1/
 nbm_ia_v2/
 pretr_weights
-*.ipynb
-*/_pycache_
+**/__pycache__
+.venv
+.vscode
