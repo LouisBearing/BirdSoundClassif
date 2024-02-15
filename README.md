@@ -16,6 +16,7 @@ pip install -r requirements.txt
 ### Download model weights
 You need to manually download the model weights and put the whole model folder inside this repository. 
 The download link is : 
+TBD
 
 ### Run inference notebook
 Open `Exec_Detr.ipynb` and run each cell one after the other.
