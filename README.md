@@ -6,7 +6,7 @@
 - Install python version 3.10
 
 ### Install
-Create virtual environement with conda (or venv) and activate it.
+Create virtual environment with conda (or venv) and activate it.
 Here is how to do with conda.
 
 ```
