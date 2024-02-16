@@ -146,7 +146,8 @@ class SetCriterion(nn.Module):
         device = pred_logits.device
         tgt_lengths = torch.as_tensor([len(v["labels"]) for v in targets], device=device)
         # Count the number of predictions that are NOT "no-object" (which is the last class)
-        card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+        # card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+        card_pred = (pred_logits.argmax(-1) != 0).sum(1)
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
         losses = {'cardinality_error': card_err}
         return losses
@@ -234,7 +235,7 @@ class SetCriterion(nn.Module):
 
         device = outputs['pred_logits'].device
         if negative_sample:
-            losses = {loss: torch.tensor(0.0).to(device) for loss in ['loss_bbox', 'loss_giou', 'loss_ce']}
+            losses = {loss: torch.tensor(0.0).to(device) for loss in ['loss_bbox', 'loss_giou', 'loss_ce', 'cardinality_error']}
             losses['loss_neg_ce'] = (-torch.log(outputs['pred_logits'].softmax(-1)[..., 0])).mean()
             return losses
 
@@ -399,7 +400,7 @@ def build(args):
     weight_dict = {'loss_ce': 1, 'loss_neg_ce': 1, 'loss_bbox': args.bbox_loss_coef}
     weight_dict['loss_giou'] = args.giou_loss_coef
 
-    losses = ['labels', 'boxes'] #, 'cardinality']
+    losses = ['labels', 'boxes', 'cardinality']
 
     criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
                              eos_coef=args.eos_coef, losses=losses)

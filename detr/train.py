@@ -159,7 +159,8 @@ def train_one_step(model, criterion, optimizer, batch, max_norm, device, negativ
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
     optimizer.step()
 
-    return loss_dict['loss_ce'].item(), loss_dict['loss_bbox'].item(), loss_dict['loss_giou'].item(), loss_dict['loss_neg_ce'].item()
+    return loss_dict['loss_ce'].item(), loss_dict['loss_bbox'].item(), loss_dict['loss_giou'].item(), \
+        loss_dict['loss_neg_ce'].item(), loss_dict['cardinality_error'].item()
 
 
 def step(model, criterion, batch, device, negative_sample):
@@ -248,20 +249,22 @@ def main(args):
         'cls_loss': 0,
         'reg_loss': 0,
         'giou_loss': 0,
-        'neg_cls_loss': 0
+        'neg_cls_loss': 0,
+        'cardinality_error': 0
     }
 
-    save_steps = [args.save_step]
+    save_steps = [150e3, 200e3, 250e3] # args.save_step
     while steps < args.max_steps:
 
         for batch in train_loader:
-            cls_loss, reg_loss, giou_loss, neg_cls_loss = train_one_step(
+            cls_loss, reg_loss, giou_loss, neg_cls_loss, cardinality_error = train_one_step(
                 model, criterion, optimizer, batch, args.clip_max_norm, device, 
                 negative_sample=(steps % args.neg_step_freq == 0) and (steps > args.first_neg_step))
             train_losses['cls_loss'] += cls_loss
             train_losses['reg_loss'] += reg_loss
             train_losses['giou_loss'] += giou_loss
             train_losses['neg_cls_loss'] += neg_cls_loss
+            train_losses['cardinality_error'] += cardinality_error
             if steps % 50 == 0:
                 for key in train_losses.keys():
                     writer.add_scalar(f'Training_Loss/{key}', train_losses[key] / 50, global_step=steps)
@@ -275,16 +278,18 @@ def main(args):
             # Validation
             if steps % 200 == 0:
                 model.eval(), criterion.eval()
-                val_cls_loss, val_reg_loss, val_giou_loss = 0, 0, 0
+                val_cls_loss, val_reg_loss, val_giou_loss, val_card_error = 0, 0, 0, 0
                 for i, valid_batch in enumerate(validation_loader):
                     with torch.no_grad():
                         loss_dict = step(model, criterion, valid_batch, device, negative_sample=False)
                     val_cls_loss += loss_dict['loss_ce'].item()
                     val_reg_loss += loss_dict['loss_bbox'].item()
                     val_giou_loss += loss_dict['loss_giou'].item()
+                    val_card_error += loss_dict['cardinality_error'].item()
                 val_cls_loss /= i
                 val_reg_loss /= i
                 val_giou_loss /= i
+                val_card_error /= i
                 with torch.no_grad():
                     loss_dict = step(model, criterion, valid_batch, device, negative_sample=True)
                 val_neg_cls_loss = loss_dict['loss_neg_ce'].item()
@@ -292,6 +297,7 @@ def main(args):
                 writer.add_scalar(f'Val_Loss/reg_loss', val_reg_loss, global_step=steps)
                 writer.add_scalar(f'Val_Loss/giou_loss', val_giou_loss, global_step=steps)
                 writer.add_scalar(f'Val_Loss/neg_cls_loss', val_neg_cls_loss, global_step=steps)
+                writer.add_scalar(f'Val_Loss/cardinality_error', val_card_error, global_step=steps)
             
                 if (epoch > 3) and (val_cls_loss < best_val_cls_loss):
                     best_val_cls_loss = val_cls_loss
