@@ -1,11 +1,8 @@
 models*/
 launch*
-requirements.txt
+requirements_old.txt
 container.def
 .remi/
-efficientdet_pytorch
-faster_rcnn_v1/
-nbm_ia_v2/
 pretr_weights
 **/__pycache__
 .venv
