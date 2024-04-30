@@ -177,3 +177,6 @@ def main():
     parser.add_argument('-o', '--filepath', type=str, help='Where to save audio files')
     args = parser.parse_args()
     download_request(args)
+
+if __name__ == "__main__":
+    main()
