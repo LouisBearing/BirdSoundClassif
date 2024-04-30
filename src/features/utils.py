@@ -106,18 +106,19 @@ def create_label_dataset(directory, extra_str_label='', suppress_others=True, su
     '''
 
     # Bird species to ID dictionary
-    dict_dir = r'C:\Users\laeri\NBM'
+    dict_dir = r''
     with open(os.path.join(dict_dir, 'bird_dict.json'), 'r') as f:
         birds_dict = json.load(f)
     
+    annot_dir = os.path.join(directory, "annotations")
     # Labels dataframe
     if is_csv:
-        labels = pd.read_csv(os.path.join(directory, 'annotations.csv'))
+        labels = pd.read_csv(os.path.join(annot_dir, 'annotations.csv'))
         # Suppress file extension
         labels['filename'] = labels['filename'].str.slice_replace(-4, repl='')
     else:
-        df_list = [read_txt_file(os.path.join(directory, f), extra_str_label=extra_str_label) 
-            for f in os.listdir(directory) if os.path.splitext(f)[-1] == '.txt']
+        df_list = [read_txt_file(os.path.join(annot_dir, f), extra_str_label=extra_str_label) 
+            for f in os.listdir(annot_dir) if os.path.splitext(f)[-1] == '.txt']
         labels = pd.concat(df_list)
 
     # Convert to float and clip
@@ -245,7 +246,7 @@ def visualise_file_annot(dirp, max_show=None):
     filesp = glob.glob(dirp + '/*.png')
     
     # Bird dict
-    dict_dir = r'C:\Users\laeri\NBM'
+    dict_dir = r''
     with open(os.path.join(dict_dir, 'bird_dict.json'), 'r') as f:
         birds_dict = json.load(f)
 

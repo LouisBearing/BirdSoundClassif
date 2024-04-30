@@ -82,9 +82,9 @@ def prepare_dataset(directory, out_directory, freq_accuracy=33.3, dt=0.003, over
     top_dir = directory.split('\\')[-1]
     extra_str_label = ornithos[top_dir]['extra_label'] if top_dir in ornithos.keys() else ''
     if audio_format != '':
-        audio_files = glob.glob(directory + f'/*.{audio_format}')
+        audio_files = glob.glob(os.path.joint(directory, "audio", f'*.{audio_format}'))
     else:
-        audio_files = glob.glob(directory + '/*.wav') + glob.glob(directory + '/*.mp3')
+        audio_files = glob.glob(os.path.join(directory, "audio", '*.wav')) + glob.glob(os.path.join(directory, "audio", '*.mp3'))
     if annotations:
         labels = create_label_dataset(directory, extra_str_label=extra_str_label, suppress_unID=True, is_csv=top_dir == 'mediae')
     else:
