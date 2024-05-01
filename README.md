@@ -1,6 +1,6 @@
 # Code for bird call detection model based on Detr
 
-![image info](.docs/assets/demo_results/emb_ort.png)
+![image info](docs/assets/demo_results/emb_ort.png)
 
 ### Prerequisit
 - Install python version 3.10
