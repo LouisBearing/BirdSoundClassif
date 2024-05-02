@@ -1,0 +1,18 @@
+FROM matthieujln/bird-sound-classif:base
+
+WORKDIR /app
+
+# Development:
+COPY ./requirements.txt . 
+RUN pip install -r requirements.txt
+
+
+COPY . /app 
+
+
+# production:
+# RUN pip install --no-cache-dir -r requirements.txt
+
+RUN echo "alias python='python3'" >> /root/.bashrc
+
+CMD ["bash"]

@@ -1,0 +1,11 @@
+torch==2.2.0
+torchaudio==2.2.0
+torchvision==0.17.0
+tqdm==4.66.2
+imageio==2.34.0
+ffmpeg-python==0.2.0
+matplotlib==3.8.2
+pandas==2.2.0
+scipy==1.13.0
+numpy==1.26.4
+librosa==0.10.2

@@ -1,0 +1,30 @@
+FROM ubuntu:jammy-20240416
+
+# Enable terminal color support
+RUN echo 'export TERM=xterm-256color' >> /etc/profile
+
+WORKDIR /app
+
+# Install Python 3.10 and dependencies
+RUN apt-get update \
+    && apt-get install -y software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get install -y python3.10 python3-pip
+
+COPY requirements.txt .
+
+# Development:
+RUN pip install -r requirements.txt
+
+# production:
+# RUN pip install --no-cache-dir -r requirements.txt
+
+# Installation of the `src` package
+COPY ./src ./src
+COPY ./setup.py .
+RUN pip install -e .
+
+
+RUN echo "alias python='python3'" >> /root/.bashrc
+
+CMD ["bash"]
