@@ -57,6 +57,18 @@ pip freeze | cat
 ```
 
 
+### 2ème essai, l'inférence tourne correctement
+Modifs nécessaires pour le cpu:
+- Ajout d'une fonction `load_weights_cpu()` dans `src/models/detr`
+- Ajout d'un script spécifique au cpu `run_detection_cpu.py`
+
+```bash
+root@0a0df020b2e4:/app# python inference/main.py 
+...
+2024-05-08 10:28:03,038 - INFO - [output]: 
+{'Turdus merula': {'bbox_coord': [[552, 182, 629, 258]], 'scores': [0.9958606362342834]}}
+```
+
 
 ### Après un premier essai...
 On retourne au bon vieux message d'erreur dû aux problèmes de cpu... 
