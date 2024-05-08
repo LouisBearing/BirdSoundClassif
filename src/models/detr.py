@@ -365,6 +365,47 @@ def load_weights(args, model, path=None, train=True):
     return model
 
 
+def load_weights_cpu(args, model, path=None, train=True):
+    # assert args.dilation, 'dilation disabled...'
+    suff = ''
+    if not args.dilation:
+        suff = '_light'
+
+    model_dict = model.state_dict()
+    exclude = []
+
+    # If not path is provided then load from the public pretrained weights
+    if path is None:
+        weight_key = 'model'
+        exclude.append('class_embed')
+        if args.num_queries != 100:
+            exclude.append('query_embed')
+        if args.hidden_dim != 256:
+            exclude.extend(['input_proj', 'transformer', 'query_embed', 'bbox_embed'])
+        path = os.path.join(args.pretrained_dir, pretr[args.backbone + suff])
+    else:
+        weight_key = 'checkpoints'
+
+    # Load the state dictionary and map it to the CPU device
+    state_dict = torch.load(path, map_location=torch.device('cpu'))
+
+    # Filter out excluded keys and keys not present in the model's state dictionary
+    state_dict = {k: v for k, v in state_dict[weight_key].items() if k in model_dict \
+                  and not np.array([e in k for e in exclude]).any()}
+
+    # Update the model's state dictionary with the loaded weights
+    model_dict.update(state_dict)
+    model.load_state_dict(model_dict)
+
+    if train:
+        model.train()
+    else:
+        model.eval()
+
+    return model
+
+
+
 def build(args):
     # the `num_classes` naming here is somewhat misleading.
     # it indeed corresponds to `max_obj_id + 1`, where max_obj_id
