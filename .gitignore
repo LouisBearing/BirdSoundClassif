@@ -9,3 +9,5 @@ pretr_weights
 .vscode
 .ipynb_checkpoints
 xc_utils/dist
+Compute_model_accuracy.ipynb
+*.csv
