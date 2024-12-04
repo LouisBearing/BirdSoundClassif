@@ -8,3 +8,4 @@ pretr_weights
 .venv
 .vscode
 .ipynb_checkpoints
+xc_utils/dist
