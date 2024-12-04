@@ -1,0 +1,9 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting bleach
+  Downloading bleach-6.1.0-py3-none-any.whl (162 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 162.8/162.8 KB 1.0 MB/s eta 0:00:00
+Collecting webencodings
+  Downloading webencodings-0.5.1-py2.py3-none-any.whl (11 kB)
+Requirement already satisfied: six>=1.9.0 in /usr/lib/python3/dist-packages (from bleach) (1.16.0)
+Installing collected packages: webencodings, bleach
+Successfully installed bleach-6.1.0 webencodings-0.5.1

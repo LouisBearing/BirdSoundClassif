@@ -25,11 +25,18 @@ def download_request(args):
     else:
         file_ids = []
     
-    # XC API request    
+    # XC API request
+    query = f'{args.species}'
+    if args.sound_type is not None:
+        print(f' type:{args.sound_type}')
+        query += f' type:"{args.sound_type}"'
+    if args.max_length is not None:
+        query += f' len_lt:{args.max_length}'
+    if args.quality is not None:
+        query += f' q:{args.quality}'
     parameters = {
-        'query': f'{args.species} type:"{args.sound_type}" len_lt: {args.max_length} q:{args.quality}'
+        'query': query
     }
-    # TODO: permettre de ne pas préciser la qualité
 
     write_path = os.path.join(args.filepath, '_'.join(args.species.split()))
     os.makedirs(write_path, exist_ok=True)
@@ -177,3 +184,7 @@ def main():
     parser.add_argument('-o', '--filepath', type=str, help='Where to save audio files')
     args = parser.parse_args()
     download_request(args)
+
+
+if __name__ == "__main__":
+    main()

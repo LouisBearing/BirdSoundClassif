@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 name = "xeno_canto_utils_nbm"
 description = "Utility functions to interact with the Xeno Canto API with python"
 
-version = "0.0.16"
+version = "0.0.19"
 authors = [
     { name = "Louloulou", email = "laerien@gmail.com" }
 ]
