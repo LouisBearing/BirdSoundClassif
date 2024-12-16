@@ -1,4 +1,4 @@
-# Code for bird call detection model based on Detr
+# Code for bird call detection model based on FRCNN
 
 ![image info](./demo_results/emb_ort.png)
 
