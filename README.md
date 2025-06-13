@@ -21,7 +21,7 @@ The download link is :
 TBD
 
 ### Run inference notebook
-Open `Exec_Detr.ipynb` and run each cell one after the other.
+TBD
 
 
 
