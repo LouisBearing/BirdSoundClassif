@@ -4,7 +4,7 @@
 
 ### NBM dataset on Zenodo
 
-The NBM dataset can be found and dowloaded at this address: (https://zenodo.org/records/15655748).
+The NBM dataset can be found and downloaded at this address: (https://zenodo.org/records/15655748).
 
 ### NBM object detection model
 
@@ -27,7 +27,7 @@ To run the model you will need the checkpoint and config files, along with the d
 
 #### 🐦 Model execution 
 
-Execute the following command line instruction to analyze all .wav files in a directory:
+Execute the following command line instruction to analyze all `.wav` files in a directory:
 
 `python nbm_model/nbm_detect.py --ckpt model_weights --audio_dir <PATH_TO_WAV_FILES_DIRECTORY>`
 
