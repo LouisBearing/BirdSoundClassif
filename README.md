@@ -15,13 +15,18 @@ conda activate venv
 pip install -r requirements.txt
 ```
 
-### Download model weights
-You need to manually download the model weights and put the whole model folder inside this repository. 
-The download link is : 
-TBD
+### Model weights
+The `model_weights` directory includes both the checkpoints and the configuration file.
 
-### Run inference notebook
-TBD
+### Execute the model
+To run the model you will need the checkpoint and config files, along with the dictionnary file (bird_dict.json) linking species names to ids.
+
+Execute the following command line instruction to analyze all .wav files in a directory:
+
+`python nbm_model/nbm_detect.py --ckpt model_weights --audio_dir <PATH_TO_WAV_FILES_DIRECTORY>`
+
+The NBM object detection model currently classifies (fligt) calls from common European songbird species. Please refer to the paper for an exhaustive list of the main species. 
+A number of species lacking substantial training data can still be identified but with reduced accuracy.
 
 
 
