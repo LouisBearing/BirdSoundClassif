@@ -5,75 +5,8 @@ from .utils import *
 import librosa
 import soundfile
 import glob
-import pickle
 import imageio
 import shutil
-
-
-ornithos = {
-    'NidalIssa': {
-        'extra_label': ''
-    },
-    'KevinLeveque': {
-        'extra_label': ''
-    },
-    'HerveRenaudineau': {
-        'extra_label': ''
-    },
-    'GuillaumeBigayon': {
-        'extra_label': ''
-    },
-    'GhislainRiou': {
-        'extra_label': ''
-    },
-    'GaëtanMineau': {
-        'extra_label': ''
-    },
-    'FredericCazaban': {
-        'extra_label': ''
-    },
-    'ChristopheMercier': {
-        'extra_label': ''
-    },
-    'AymericMousseau': {
-        'extra_label': 'amousseau_'
-    },
-    'AdrienPajot': {
-        'extra_label': ''
-    },
-    'WillyRaitiere': {
-        'extra_label': 'willyraitiere_'
-    },
-    'MaxencePajot': {
-        'extra_label': 'Piste de marqueur'
-    },
-    'MathurinAubry': {
-        'extra_label': ''
-    },
-    'LionelManceau': {
-        'extra_label': ''
-    },
-    'mediae': {
-        'extra_label': ''
-    }
-}
-
-
-keywords = [
-    'anthus_pratensis',
-    'apus_apus',
-    'ardea_cinerea',
-    'calidris_alpina',
-    'charadrius_morinellus',
-    'numenius_arquata',
-    'tyto_alba',
-    'vanellus_vanellus',
-    'fringilla_coelebs#444457',
-    'fringilla_coelebs#781870',
-    'linaria_cannabina#606298',
-    'rallus_aquaticus#789124',
-    'rallus_aquaticus#794338'
-]
 
 
 def prepare_dataset(directory, out_directory, freq_accuracy=33.3, dt=0.003, overlap_spectro=0.2, w_pix=1024, annotations=True, 
@@ -84,7 +17,7 @@ def prepare_dataset(directory, out_directory, freq_accuracy=33.3, dt=0.003, over
 
     # top_dir = directory.split('\\')[-1]
     top_dir = directory.split('/')[-1]
-    extra_str_label = ornithos[top_dir]['extra_label'] if top_dir in ornithos.keys() else ''
+    extra_str_label = ''
 
     if keep_files_p is not None:
         with open(keep_files_p, 'r') as f:
@@ -374,9 +307,8 @@ class File_Processor:
         labels_ = self.labels.loc[self.labels['filename'] == self.filename].copy()
         # if mp3 file, suppress offset added in audacity, here this is a hardcoded 0.025s
         if self.ext == 'mp3':
-            if not np.array([k in self.filename for k in keywords]).any():
-                for col in ['t_start', 't_end']:
-                    labels_[col] = labels_[col] - 0.03
+            for col in ['t_start', 't_end']:
+                labels_[col] = labels_[col] - 0.03
         
         if len(labels_) == 0:
             # labels_ = pd.DataFrame({key: [] for key in ['index', 'coord', 'bird_id']})
