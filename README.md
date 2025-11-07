@@ -4,7 +4,7 @@
 
 ### NBM dataset on Zenodo
 
-The NBM dataset can be found and downloaded at this address: (https://zenodo.org/records/15655748).
+The NBM dataset can be found and downloaded at this address: (https://zenodo.org/records/17544346).
 
 ### NBM object detection model
 
